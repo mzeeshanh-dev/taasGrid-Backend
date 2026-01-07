@@ -188,6 +188,7 @@ export const uploadCvs = async (req, res) => {
 };
 
 
+
 export const analyzeCvs = async (req, res) => {
   try {
     const criteria = req.body;
@@ -197,10 +198,13 @@ export const analyzeCvs = async (req, res) => {
     res.setHeader("Content-Type", "application/x-ndjson");
     res.setHeader("Transfer-Encoding", "chunked");
 
-    // 1️⃣ Fetch or create single batch
+    // 🔹 Always clear the previous batch
     let batch = await Batch.findOne({ name: "single-batch" });
     if (!batch) {
       batch = await Batch.create({ name: "single-batch", resumes: [] });
+    } else {
+      batch.resumes = [];
+      await batch.save();
     }
 
     const allResults = [];
@@ -210,10 +214,8 @@ export const analyzeCvs = async (req, res) => {
       if (i > 0) await delay(500); // prevent rate limit
 
       try {
-        // 2️⃣ Extract structured CV data
         const structuredCvData = await structureCvData(cv.content, cv.filename);
 
-        // 3️⃣ Analyze CV using AI
         const analyzePrompt = `
           Analyze this CV against criteria: ${JSON.stringify(criteria)}
           CV Data: ${JSON.stringify(structuredCvData)}
@@ -244,7 +246,6 @@ export const analyzeCvs = async (req, res) => {
         const analysisJsonMatch = analysisText.match(/\{[\s\S]*\}/);
         const analysis = JSON.parse(analysisJsonMatch ? analysisJsonMatch[0] : analysisText);
 
-        // 4️⃣ Build result object
         const resObj = {
           cv: { id: cv.id, filename: cv.filename, uploadDate: cv.uploadDate },
           extractedData: structuredCvData,
@@ -266,25 +267,23 @@ export const analyzeCvs = async (req, res) => {
 
         allResults.push(resObj);
 
-        // 5️⃣ Streaming to frontend
+        // 🔹 Stream to frontend
         res.write(JSON.stringify(resObj) + "\n");
 
-        // 6️⃣ Upsert in MongoDB batch
-        const existingIndex = batch.resumes.findIndex(r => r.cv.id === cv.id);
-        if (existingIndex !== -1) {
-          batch.resumes[existingIndex] = resObj; // update
-        } else {
-          batch.resumes.push(resObj); // insert new
-        }
+        // 🔹 Add to batch
+        batch.resumes.push(resObj);
 
       } catch (e) {
-        // stream error for this CV
-        res.write(JSON.stringify({ cv: { id: cv.id, filename: cv.filename }, error: true, message: e.message }) + "\n");
+        res.write(JSON.stringify({
+          cv: { id: cv.id, filename: cv.filename },
+          error: true,
+          message: e.message
+        }) + "\n");
       }
     }
 
     batch.updatedAt = new Date();
-    await batch.save(); // persist batch in MongoDB
+    await batch.save();
     res.end();
 
   } catch (error) {
@@ -292,6 +291,7 @@ export const analyzeCvs = async (req, res) => {
     res.status(500).json({ message: "Analysis failed", error: error.message });
   }
 };
+
 
 
 export const rankCvs = async (req, res) => {
