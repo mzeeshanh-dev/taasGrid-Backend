@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import Batch from "../models/batch.js";
 dotenv.config();
 
 
@@ -186,42 +187,48 @@ export const uploadCvs = async (req, res) => {
   }
 };
 
+
 export const analyzeCvs = async (req, res) => {
   try {
     const criteria = req.body;
     const cvs = await storage.getCvs();
-    if (cvs.length === 0) return res.json([]);
+    if (!cvs.length) return res.json([]);
 
-    res.setHeader('Content-Type', 'application/x-ndjson');
-    res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader("Content-Type", "application/x-ndjson");
+    res.setHeader("Transfer-Encoding", "chunked");
+
+    // 1️⃣ Fetch or create single batch
+    let batch = await Batch.findOne({ name: "single-batch" });
+    if (!batch) {
+      batch = await Batch.create({ name: "single-batch", resumes: [] });
+    }
 
     const allResults = [];
+
     for (let i = 0; i < cvs.length; i++) {
       const cv = cvs[i];
-      if (i > 0) await delay(MIN_REQUEST_DELAY);
-      try {
-        // First, extract structured CV data
-        const structuredCvData = await structureCvData(cv.content);
+      if (i > 0) await delay(500); // prevent rate limit
 
-        // Then, analyze against criteria
+      try {
+        // 2️⃣ Extract structured CV data
+        const structuredCvData = await structureCvData(cv.content, cv.filename);
+
+        // 3️⃣ Analyze CV using AI
         const analyzePrompt = `
-        Analyze this CV against the following criteria: ${JSON.stringify(criteria)}
-        
-        CV Data: ${JSON.stringify(structuredCvData)}
-        
-        Return a JSON object with:
-        {
-          "score": 0-100,
-          "matchPercentage": 0-100,
-          "matchDetails": "detailed summary of how CV matches criteria",
-          "strengths": ["key strengths"],
-          "gaps": ["missing qualifications or skills"],
-          "recommendations": ["suggestions to improve match"],
-          "matchedSkills": ["skills from CV that match criteria"],
-          "experienceMatch": "assessment of relevant experience"
-        }
-        
-        Return ONLY the JSON object, no additional text.`;
+          Analyze this CV against criteria: ${JSON.stringify(criteria)}
+          CV Data: ${JSON.stringify(structuredCvData)}
+          Return ONLY a JSON object:
+          {
+            "score": 0-100,
+            "matchPercentage": 0-100,
+            "matchDetails": "",
+            "strengths": [],
+            "gaps": [],
+            "recommendations": [],
+            "matchedSkills": [],
+            "experienceMatch": ""
+          }
+        `;
 
         const analysisResult = await model.generateContent([
           { inlineData: { mimeType: "application/pdf", data: cv.content } },
@@ -237,12 +244,9 @@ export const analyzeCvs = async (req, res) => {
         const analysisJsonMatch = analysisText.match(/\{[\s\S]*\}/);
         const analysis = JSON.parse(analysisJsonMatch ? analysisJsonMatch[0] : analysisText);
 
+        // 4️⃣ Build result object
         const resObj = {
-          cv: {
-            id: cv.id,
-            filename: cv.filename,
-            uploadDate: cv.uploadDate
-          },
+          cv: { id: cv.id, filename: cv.filename, uploadDate: cv.uploadDate },
           extractedData: structuredCvData,
           analysis: {
             id: cv.id,
@@ -256,22 +260,39 @@ export const analyzeCvs = async (req, res) => {
             matchedSkills: analysis.matchedSkills || [],
             experienceMatch: analysis.experienceMatch || "",
             locked: false,
-            analyzedAt: new Date().toISOString()
+            analyzedAt: new Date()
           }
         };
 
         allResults.push(resObj);
-        res.write(JSON.stringify(resObj) + '\n');
+
+        // 5️⃣ Streaming to frontend
+        res.write(JSON.stringify(resObj) + "\n");
+
+        // 6️⃣ Upsert in MongoDB batch
+        const existingIndex = batch.resumes.findIndex(r => r.cv.id === cv.id);
+        if (existingIndex !== -1) {
+          batch.resumes[existingIndex] = resObj; // update
+        } else {
+          batch.resumes.push(resObj); // insert new
+        }
+
       } catch (e) {
-        res.write(JSON.stringify({ cv: { id: cv.id, filename: cv.filename }, error: true, message: e.message }) + '\n');
+        // stream error for this CV
+        res.write(JSON.stringify({ cv: { id: cv.id, filename: cv.filename }, error: true, message: e.message }) + "\n");
       }
     }
-    if ((req).session) (req).session.analysisResults = allResults;
+
+    batch.updatedAt = new Date();
+    await batch.save(); // persist batch in MongoDB
     res.end();
+
   } catch (error) {
+    console.error(error);
     res.status(500).json({ message: "Analysis failed", error: error.message });
   }
 };
+
 
 export const rankCvs = async (req, res) => {
   const results = (req).session?.analysisResults || [];
