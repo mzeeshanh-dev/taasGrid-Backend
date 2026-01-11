@@ -24,7 +24,8 @@ const ResumeSchema = new mongoose.Schema({
 });
 
 const BatchSchema = new mongoose.Schema({
-    name: { type: String, default: "single-batch" }, // For now, single batch
+    batchId: { type: String, required: true, unique: true }, // 🔑
+    name: { type: String, required: true },                  // Batch-01
     resumes: [ResumeSchema],
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }

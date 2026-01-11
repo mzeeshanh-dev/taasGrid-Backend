@@ -52,13 +52,13 @@ export const uploadBatchResumes = async (req, res) => {
 // --------------------- Get batch resumes ---------------------
 export const getBatchResumes = async (req, res) => {
     try {
-        const batch = await Batch.findOne();
-        if (!batch) return res.json({ resumes: [] });
-        res.json({ resumes: batch.resumes });
+        const batches = await Batch.find().sort({ createdAt: 1 });
+        res.json({ batches });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
 };
+
 
 // --------------------- Update batch / patch analysis ---------------------
 export const updateBatchResume = async (req, res) => {

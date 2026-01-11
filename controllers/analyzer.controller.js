@@ -191,27 +191,37 @@ export const uploadCvs = async (req, res) => {
 
 export const analyzeCvs = async (req, res) => {
   try {
-    const criteria = req.body;
+    const { batchId, batchName, criteria } = req.body;
+
+    if (!batchId || !batchName) {
+      return res.status(400).json({ message: "batchId and batchName required" });
+    }
+
     const cvs = await storage.getCvs();
     if (!cvs.length) return res.json([]);
 
     res.setHeader("Content-Type", "application/x-ndjson");
     res.setHeader("Transfer-Encoding", "chunked");
 
-    // 🔹 Always clear the previous batch
-    let batch = await Batch.findOne({ name: "single-batch" });
+    // 🔹 Find or recreate batch (overwrite behavior)
+    let batch = await Batch.findOne({ batchId });
+
     if (!batch) {
-      batch = await Batch.create({ name: "single-batch", resumes: [] });
+      batch = await Batch.create({
+        batchId,
+        name: batchName,
+        resumes: []
+      });
     } else {
+      // overwrite ONLY this batch
       batch.resumes = [];
+      batch.updatedAt = new Date();
       await batch.save();
     }
 
-    const allResults = [];
-
     for (let i = 0; i < cvs.length; i++) {
       const cv = cvs[i];
-      if (i > 0) await delay(500); // prevent rate limit
+      if (i > 0) await delay(500);
 
       try {
         const structuredCvData = await structureCvData(cv.content, cv.filename);
@@ -237,17 +247,20 @@ export const analyzeCvs = async (req, res) => {
           { text: analyzePrompt }
         ]);
 
-        const analysisResponse = await analysisResult.response;
-        let analysisText = analysisResponse.text().trim()
-          .replace(/```json\n?/g, '')
-          .replace(/```\n?/g, '')
+        const analysisText = analysisResult.response.text()
+          .replace(/```json|```/g, "")
           .trim();
 
-        const analysisJsonMatch = analysisText.match(/\{[\s\S]*\}/);
-        const analysis = JSON.parse(analysisJsonMatch ? analysisJsonMatch[0] : analysisText);
+        const analysis = JSON.parse(
+          analysisText.match(/\{[\s\S]*\}/)?.[0] || "{}"
+        );
 
         const resObj = {
-          cv: { id: cv.id, filename: cv.filename, uploadDate: cv.uploadDate },
+          cv: {
+            id: cv.id,
+            filename: cv.filename,
+            uploadDate: cv.uploadDate
+          },
           extractedData: structuredCvData,
           analysis: {
             id: cv.id,
@@ -265,12 +278,10 @@ export const analyzeCvs = async (req, res) => {
           }
         };
 
-        allResults.push(resObj);
-
-        // 🔹 Stream to frontend
+        // stream
         res.write(JSON.stringify(resObj) + "\n");
 
-        // 🔹 Add to batch
+        // save to THIS batch only
         batch.resumes.push(resObj);
 
       } catch (e) {
@@ -291,6 +302,7 @@ export const analyzeCvs = async (req, res) => {
     res.status(500).json({ message: "Analysis failed", error: error.message });
   }
 };
+
 
 
 
