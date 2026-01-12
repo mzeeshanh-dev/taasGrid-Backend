@@ -1,27 +1,27 @@
 import { storage } from "../storage.js";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import Groq from "groq-sdk"; // Switched to Groq
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import Batch from "../models/batch.js";
-dotenv.config();
+import pdf from "pdf-parse-fixed"; // Need a simple parser to send text to Groq
 
+dotenv.config();
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 const MIN_REQUEST_DELAY = 500;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const apiKey = process.env.GEMINI_API_KEY;
+const apiKey = process.env.GROQ_API_KEY;
 
 if (!apiKey) {
-  console.error("❌ GEMINI_API_KEY is not set in environment variables");
+  console.error("❌ GROQ_API_KEY is not set in environment variables");
 } else {
-  console.log("✓ GEMINI_API_KEY found:", apiKey.substring(0, 10) + "...");
+  console.log("✓ GROQ_API_KEY found:", apiKey.substring(0, 10) + "...");
 }
 
-const genAI = new GoogleGenerativeAI(apiKey || "");
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
+const groq = new Groq({ apiKey: apiKey || "" });
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -36,75 +36,59 @@ const formatExperience = (years) => {
 
 // Structured CV Data Parser
 const structureCvData = async (buffer, filename) => {
-  const prompt = `You are a CV parser. Extract and structure the following CV data into VALID JSON format. Return ONLY the JSON object.
-
-{
-  "personalInfo": {
-    "fullName": "",
-    "email": "",
-    "phone": "",
-    "location": "",
-    "linkedIn": "",
-    "portfolio": ""
-  },
-  "summary": "",
-  "education": [],
-  "experience": [],
-  "skills": {
-    "technical": [],
-    "soft": [],
-    "languages": [],
-    "tools": []
-  },
-  "certifications": [],
-  "projects": []
-}`;
+  // We force the AI to calculate months and use your exact frontend keys
+  const prompt = `You are a professional CV parser. Extract data from the CV and return a VALID JSON object.
+  
+  CRITICAL INSTRUCTIONS for 'personalInfo':
+  You must include these specific keys for the experience chart:
+  - "professionalJob": Total number of months in Corporate/Full-time roles.
+  - "internship": Total number of months in Internship roles.
+  - "freelancing": Total number of months in Freelance/Contract roles.
+  
+  Calculation Rule: If a role is "Aug 2024 - Present" and today is Jan 2026, that is 17 months.
+  
+  Return format:
+  {
+    "personalInfo": { 
+      "fullName": "Name here", 
+      "email": "Email here", 
+      "phone": "Phone here", 
+      "location": "City, Country",
+      "professionalJob": 0, 
+      "internship": 0, 
+      "freelancing": 0 
+    },
+    "education": [{ "degree": "", "university": "", "gpa": "", "duration": "" }],
+    "experience": [{ "years": "", "details": { "company": "", "position": "", "responsibilities": [] } }],
+    "skills": { "technical": [], "soft": [], "tools": [] }
+  }`;
 
   try {
-    // Create File-like object for Gemini API
-    const fileData = {
-      inlineData: {
-        mimeType: "application/pdf",
-        data: typeof buffer === 'string' ? buffer : buffer.toString('base64')
-      }
-    };
+    const data = await pdf(buffer);
+    const cvText = data.text;
 
-    console.log(`Sending PDF to Gemini API for ${filename}...`);
-    console.log(`API Key valid: ${apiKey ? 'Yes' : 'No'}`);
+    const result = await groq.chat.completions.create({
+      messages: [
+        { role: "system", content: prompt },
+        { role: "user", content: cvText }
+      ],
+      model: "llama-3.1-8b-instant",
+      temperature: 0.1,
+      response_format: { type: "json_object" }
+    });
 
-    const result = await model.generateContent([fileData, { text: prompt }]);
-    const response = await result.response;
-    const text = response.text();
+    const parsedData = JSON.parse(result.choices[0].message.content);
 
-    console.log(`Received response for ${filename}`);
-
-    // Extract JSON from response
-    let jsonStr = text.trim();
-
-    // Remove markdown formatting
-    if (jsonStr.includes('```')) {
-      const matches = jsonStr.match(/```[\s\S]*?\n([\s\S]*?)\n```/);
-      if (matches) jsonStr = matches[1];
+    // Fallback: Ensure keys exist so frontend doesn't crash if AI misses one
+    if (parsedData.personalInfo) {
+      parsedData.personalInfo.professionalJob = parsedData.personalInfo.professionalJob || 0;
+      parsedData.personalInfo.internship = parsedData.personalInfo.internship || 0;
+      parsedData.personalInfo.freelancing = parsedData.personalInfo.freelancing || 0;
     }
 
-    // Find the JSON object
-    const startIdx = jsonStr.indexOf('{');
-    const endIdx = jsonStr.lastIndexOf('}');
-
-    if (startIdx === -1 || endIdx === -1) {
-      console.error(`No JSON found in response for ${filename}`);
-      console.error(`Response text: ${jsonStr.substring(0, 200)}`);
-      throw new Error("No JSON found in API response");
-    }
-
-    const jsonStr2 = jsonStr.substring(startIdx, endIdx + 1);
-    const structuredData = JSON.parse(jsonStr2);
-
-    console.log(`✓ Successfully parsed CV data for ${filename}`);
-    return structuredData;
+    return parsedData;
   } catch (error) {
     console.error(`✗ Error processing ${filename}:`, error.message);
-    console.error(`Full error:`, error);
     throw error;
   }
 };
@@ -127,10 +111,8 @@ export const uploadCvs = async (req, res) => {
       }
 
       try {
-        // Add delay between requests to avoid rate limiting
         if (i > 0) await delay(MIN_REQUEST_DELAY);
 
-        // Store CV with base64 content
         const base64Content = file.buffer.toString('base64');
         const cv = await storage.createCv({
           filename: file.originalname,
@@ -139,11 +121,8 @@ export const uploadCvs = async (req, res) => {
         });
 
         console.log(`Extracting data from ${file.originalname}...`);
-
-        // Extract and structure CV data using the file buffer
         const structuredData = await structureCvData(file.buffer, file.originalname);
 
-        // Return structured data without large base64 content
         processedCvs.push({
           id: cv.id,
           filename: cv.filename,
@@ -164,8 +143,7 @@ export const uploadCvs = async (req, res) => {
         console.error(`✗ Error processing ${file.originalname}:`, e.message);
         errors.push({
           filename: file.originalname,
-          error: e.message || "Processing failed",
-          details: e.toString()
+          error: e.message || "Processing failed"
         });
       }
     }
@@ -187,15 +165,10 @@ export const uploadCvs = async (req, res) => {
   }
 };
 
-
-
 export const analyzeCvs = async (req, res) => {
   try {
     const { batchId, batchName, criteria } = req.body;
-
-    if (!batchId || !batchName) {
-      return res.status(400).json({ message: "batchId and batchName required" });
-    }
+    if (!batchId || !batchName) return res.status(400).json({ message: "batchId and batchName required" });
 
     const cvs = await storage.getCvs();
     if (!cvs.length) return res.json([]);
@@ -203,17 +176,10 @@ export const analyzeCvs = async (req, res) => {
     res.setHeader("Content-Type", "application/x-ndjson");
     res.setHeader("Transfer-Encoding", "chunked");
 
-    // 🔹 Find or recreate batch (overwrite behavior)
     let batch = await Batch.findOne({ batchId });
-
     if (!batch) {
-      batch = await Batch.create({
-        batchId,
-        name: batchName,
-        resumes: []
-      });
+      batch = await Batch.create({ batchId, name: batchName, resumes: [] });
     } else {
-      // overwrite ONLY this batch
       batch.resumes = [];
       batch.updatedAt = new Date();
       await batch.save();
@@ -224,7 +190,9 @@ export const analyzeCvs = async (req, res) => {
       if (i > 0) await delay(500);
 
       try {
-        const structuredCvData = await structureCvData(cv.content, cv.filename);
+        // Use existing buffer logic from storage
+        const buffer = Buffer.from(cv.content, 'base64');
+        const structuredCvData = await structureCvData(buffer, cv.filename);
 
         const analyzePrompt = `
           Analyze this CV against criteria: ${JSON.stringify(criteria)}
@@ -242,25 +210,18 @@ export const analyzeCvs = async (req, res) => {
           }
         `;
 
-        const analysisResult = await model.generateContent([
-          { inlineData: { mimeType: "application/pdf", data: cv.content } },
-          { text: analyzePrompt }
-        ]);
+        const analysisResult = await groq.chat.completions.create({
+          messages: [{ role: "user", content: analyzePrompt }],
+          model: "llama-3.3-70b-versatile",
+          temperature: 0.1,
+          response_format: { type: "json_object" }
+        });
 
-        const analysisText = analysisResult.response.text()
-          .replace(/```json|```/g, "")
-          .trim();
-
-        const analysis = JSON.parse(
-          analysisText.match(/\{[\s\S]*\}/)?.[0] || "{}"
-        );
+        const analysisText = analysisResult.choices[0].message.content.trim();
+        const analysis = JSON.parse(analysisText);
 
         const resObj = {
-          cv: {
-            id: cv.id,
-            filename: cv.filename,
-            uploadDate: cv.uploadDate
-          },
+          cv: { id: cv.id, filename: cv.filename, uploadDate: cv.uploadDate },
           extractedData: structuredCvData,
           analysis: {
             id: cv.id,
@@ -278,12 +239,8 @@ export const analyzeCvs = async (req, res) => {
           }
         };
 
-        // stream
         res.write(JSON.stringify(resObj) + "\n");
-
-        // save to THIS batch only
         batch.resumes.push(resObj);
-
       } catch (e) {
         res.write(JSON.stringify({
           cv: { id: cv.id, filename: cv.filename },
@@ -296,15 +253,11 @@ export const analyzeCvs = async (req, res) => {
     batch.updatedAt = new Date();
     await batch.save();
     res.end();
-
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Analysis failed", error: error.message });
   }
 };
-
-
-
 
 export const rankCvs = async (req, res) => {
   const results = (req).session?.analysisResults || [];
