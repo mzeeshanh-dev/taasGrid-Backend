@@ -72,7 +72,7 @@ const structureCvData = async (buffer, filename) => {
         { role: "system", content: prompt },
         { role: "user", content: cvText }
       ],
-      model: "llama-3.3-70b-versatile",
+      model: "qwen/qwen3-32b",
       temperature: 0.1,
       max_tokens: 8192,
       response_format: { type: "json_object" }
@@ -213,7 +213,7 @@ export const analyzeCvs = async (req, res) => {
 
         const analysisResult = await groq.chat.completions.create({
           messages: [{ role: "user", content: analyzePrompt }],
-          model: "llama-3.3-70b-versatile",
+          model: "qwen/qwen3-32b",
           temperature: 0.1,
           max_tokens: 8192,
           response_format: { type: "json_object" }
@@ -240,7 +240,6 @@ export const analyzeCvs = async (req, res) => {
             analyzedAt: new Date()
           }
         };
-
         res.write(JSON.stringify(resObj) + "\n");
         batch.resumes.push(resObj);
       } catch (e) {
@@ -249,14 +248,16 @@ export const analyzeCvs = async (req, res) => {
           error: true,
           message: e.message
         }) + "\n");
+        console.log("Analyzation is completed");
       }
     }
 
     batch.updatedAt = new Date();
     await batch.save();
+    console.log(`✓ Analysis successfully completed for batch: ${batchName}`);
     res.end();
   } catch (error) {
-    console.error(error);
+    console.error("✗ Analysis failed:", error.message);
     res.status(500).json({ message: "Analysis failed", error: error.message });
   }
 };
