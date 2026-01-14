@@ -1,11 +1,10 @@
 import { storage } from "../storage.js";
-import Groq from "groq-sdk"; // Switched to Groq
-import * as fs from "fs";
+import Groq from "groq-sdk";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import Batch from "../models/batch.js";
-import pdf from "pdf-parse-fixed"; // Need a simple parser to send text to Groq
+import pdf from "pdf-parse-fixed";
 
 dotenv.config();
 
@@ -17,26 +16,16 @@ const apiKey = process.env.GROQ_API_KEY;
 
 if (!apiKey) {
   console.error("❌ GROQ_API_KEY is not set in environment variables");
-} else {
-  console.log("✓ GROQ_API_KEY found:", apiKey.substring(0, 10) + "...");
 }
 
 const groq = new Groq({ apiKey: apiKey || "" });
 
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const formatExperience = (years) => {
-  if (!years || years === 0) return "0 months";
-  const wholeYears = Math.floor(years);
-  const months = Math.round((years - wholeYears) * 12);
-  if (wholeYears === 0) return `${months} month${months === 1 ? '' : 's'}`;
-  if (months === 0) return `${wholeYears} year${wholeYears === 1 ? '' : 's'}`;
-  return `${wholeYears} year${wholeYears === 1 ? '' : 's'} ${months} month${months === 1 ? '' : 's'}`;
-};
-
-// Structured CV Data Parser
+/* ===========================
+   CV STRUCTURE PARSER
+=========================== */
 const structureCvData = async (buffer, filename) => {
-  // We force the AI to calculate months and use your exact frontend keys
   const prompt = `You are a professional CV parser. Extract data from the CV and return a VALID JSON object.
   
   CRITICAL INSTRUCTIONS for 'personalInfo':
@@ -65,46 +54,59 @@ const structureCvData = async (buffer, filename) => {
 
   try {
     const data = await pdf(buffer);
-    const cvText = data.text;
+    const cvText = data?.text?.slice(0, 6000) || "";
 
     const result = await groq.chat.completions.create({
+      model: "llama-3.1-8b-instant",
+      temperature: 0.1,
+      max_tokens: 3000,
+      response_format: { type: "json_object" },
       messages: [
         { role: "system", content: prompt },
         { role: "user", content: cvText }
-      ],
-      model: "qwen/qwen3-32b",
-      temperature: 0.1,
-      max_tokens: 8192,
-      response_format: { type: "json_object" }
+      ]
     });
 
-    const parsedData = JSON.parse(result.choices[0].message.content);
-
-    // Fallback: Ensure keys exist so frontend doesn't crash if AI misses one
-    if (parsedData.personalInfo) {
-      parsedData.personalInfo.professionalJob = parsedData.personalInfo.professionalJob || 0;
-      parsedData.personalInfo.internship = parsedData.personalInfo.internship || 0;
-      parsedData.personalInfo.freelancing = parsedData.personalInfo.freelancing || 0;
+    let parsed;
+    try {
+      parsed = JSON.parse(result.choices[0].message.content);
+    } catch {
+      throw new Error("Invalid JSON returned by AI");
     }
 
-    return parsedData;
-  } catch (error) {
-    console.error(`✗ Error processing ${filename}:`, error.message);
-    throw error;
+    parsed.personalInfo ??= {};
+    parsed.personalInfo.professionalJob ??= 0;
+    parsed.personalInfo.internship ??= 0;
+    parsed.personalInfo.freelancing ??= 0;
+
+    parsed.education ??= [];
+    parsed.experience ??= [];
+    parsed.skills ??= { technical: [], soft: [], tools: [] };
+
+    return parsed;
+  } catch (err) {
+    console.error(`✗ CV parsing failed (${filename}):`, err.message);
+    throw err;
   }
 };
 
+/* ===========================
+   UPLOAD CVS
+=========================== */
 export const uploadCvs = async (req, res) => {
   try {
     const files = req.files;
-    if (!files || files.length === 0) return res.status(400).json({ message: "No files uploaded" });
+    if (!files?.length) {
+      return res.status(400).json({ message: "No files uploaded" });
+    }
+
+    await storage.clearCvs(); // prevent ghost data
 
     const processedCvs = [];
     const errors = [];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      console.log(`Processing file ${i + 1}/${files.length}: ${file.originalname}`);
 
       if (file.size > MAX_FILE_SIZE) {
         errors.push({ filename: file.originalname, error: "File exceeds 50MB limit" });
@@ -114,37 +116,27 @@ export const uploadCvs = async (req, res) => {
       try {
         if (i > 0) await delay(MIN_REQUEST_DELAY);
 
-        const base64Content = file.buffer.toString('base64');
+        const base64 = file.buffer.toString("base64");
+
         const cv = await storage.createCv({
           filename: file.originalname,
-          content: base64Content,
-          uploadDate: new Date().toISOString(),
+          content: base64,
+          uploadDate: new Date().toISOString()
         });
 
-        console.log(`Extracting data from ${file.originalname}...`);
-        const structuredData = await structureCvData(file.buffer, file.originalname);
+        const structured = await structureCvData(file.buffer, file.originalname);
 
         processedCvs.push({
           id: cv.id,
           filename: cv.filename,
           uploadDate: cv.uploadDate,
-          extractedData: {
-            personalInfo: structuredData.personalInfo || {},
-            summary: structuredData.summary || "",
-            education: structuredData.education || [],
-            experience: structuredData.experience || [],
-            skills: structuredData.skills || { technical: [], soft: [], languages: [], tools: [] },
-            certifications: structuredData.certifications || [],
-            projects: structuredData.projects || []
-          }
+          extractedData: structured
         });
 
-        console.log(`✓ Successfully processed ${file.originalname}`);
-      } catch (e) {
-        console.error(`✗ Error processing ${file.originalname}:`, e.message);
+      } catch (err) {
         errors.push({
           filename: file.originalname,
-          error: e.message || "Processing failed"
+          error: err.message || "Processing failed"
         });
       }
     }
@@ -153,84 +145,81 @@ export const uploadCvs = async (req, res) => {
       success: processedCvs.length > 0,
       cvs: processedCvs,
       errors,
-      message: `Processed ${processedCvs.length}/${files.length} files`,
       summary: {
         totalFiles: files.length,
         processedFiles: processedCvs.length,
         failedFiles: errors.length
       }
     });
-  } catch (error) {
-    console.error("Upload handler error:", error);
-    res.status(500).json({ message: "Upload failed", error: error.message });
+
+  } catch (err) {
+    res.status(500).json({ message: "Upload failed", error: err.message });
   }
 };
 
+/* ===========================
+   ANALYZE CVS
+=========================== */
 export const analyzeCvs = async (req, res) => {
   try {
     const { batchId, batchName, criteria } = req.body;
-    if (!batchId || !batchName) return res.status(400).json({ message: "batchId and batchName required" });
+    if (!batchId || !batchName) {
+      return res.status(400).json({ message: "batchId and batchName required" });
+    }
 
     const cvs = await storage.getCvs();
-    if (!cvs.length) return res.json([]);
+    if (!cvs.length) return res.end();
 
     res.setHeader("Content-Type", "application/x-ndjson");
     res.setHeader("Transfer-Encoding", "chunked");
 
-    let batch = await Batch.findOne({ batchId });
-    if (!batch) {
-      batch = await Batch.create({ batchId, name: batchName, resumes: [] });
-    } else {
-      batch.resumes = [];
-      batch.updatedAt = new Date();
-      await batch.save();
-    }
+    await Batch.findOneAndUpdate(
+      { batchId },
+      { name: batchName, resumes: [], updatedAt: new Date() },
+      { upsert: true }
+    );
 
-    for (let i = 0; i < cvs.length; i++) {
-      const cv = cvs[i];
-      if (i > 0) await delay(500);
+    const processed = new Set();
+
+    for (const cv of cvs) {
+      if (processed.has(cv.id)) continue;
+      if (processed.size > 0) await delay(500);
 
       try {
-        // Use existing buffer logic from storage
-        const buffer = Buffer.from(cv.content, 'base64');
-        const structuredCvData = await structureCvData(buffer, cv.filename);
+        const buffer = Buffer.from(cv.content, "base64");
+        const structured = await structureCvData(buffer, cv.filename);
 
         const analyzePrompt = `
-          Analyze this CV against criteria: ${JSON.stringify(criteria)}
-          CV Data: ${JSON.stringify(structuredCvData)}
-          Return ONLY a JSON object:
-          {
-            "score": 0-100,
-            "matchPercentage": 0-100,
-            "matchDetails": "",
-            "strengths": [],
-            "gaps": [],
-            "recommendations": [],
-            "matchedSkills": [],
-            "experienceMatch": ""
-          }
-        `;
+Analyze this CV against criteria: ${JSON.stringify(criteria)}
+CV Data: ${JSON.stringify(structured)}
+Return ONLY a JSON object:
+{
+  "score": 0-100,
+  "matchPercentage": 0-100,
+  "matchDetails": "",
+  "strengths": [],
+  "gaps": [],
+  "recommendations": [],
+  "matchedSkills": [],
+  "experienceMatch": ""
+}`;
 
-        const analysisResult = await groq.chat.completions.create({
-          messages: [{ role: "user", content: analyzePrompt }],
-          model: "qwen/qwen3-32b",
+        const result = await groq.chat.completions.create({
+          model: "llama-3.1-8b-instant",
           temperature: 0.1,
-          max_tokens: 8192,
-          response_format: { type: "json_object" }
+          response_format: { type: "json_object" },
+          messages: [{ role: "user", content: analyzePrompt }]
         });
 
-        const analysisText = analysisResult.choices[0].message.content.trim();
-        const analysis = JSON.parse(analysisText);
+        const analysis = JSON.parse(result.choices[0].message.content);
 
-        const resObj = {
+        const payload = {
           cv: { id: cv.id, filename: cv.filename, uploadDate: cv.uploadDate },
-          extractedData: structuredCvData,
+          extractedData: structured,
           analysis: {
-            id: cv.id,
-            cvId: cv.id,
             score: Math.min(100, Math.max(0, analysis.score || 0)),
             matchPercentage: Math.min(100, Math.max(0, analysis.matchPercentage || 0)),
-            matchDetails: analysis.matchDetails || "Analysis completed",
+            matchDetails: analysis.matchDetails || "",
             strengths: analysis.strengths || [],
             gaps: analysis.gaps || [],
             recommendations: analysis.recommendations || [],
@@ -240,33 +229,58 @@ export const analyzeCvs = async (req, res) => {
             analyzedAt: new Date()
           }
         };
-        res.write(JSON.stringify(resObj) + "\n");
-        batch.resumes.push(resObj);
-      } catch (e) {
+
+        res.write(JSON.stringify(payload) + "\n");
+
+        await Batch.updateOne(
+          { batchId },
+          { $push: { resumes: payload } }
+        );
+
+        processed.add(cv.id);
+
+      } catch (err) {
         res.write(JSON.stringify({
           cv: { id: cv.id, filename: cv.filename },
           error: true,
-          message: e.message
+          message: err.message
         }) + "\n");
-        console.log("Analyzation is completed");
       }
     }
 
-    batch.updatedAt = new Date();
-    await batch.save();
-    console.log(`✓ Analysis successfully completed for batch: ${batchName}`);
     res.end();
-  } catch (error) {
-    console.error("✗ Analysis failed:", error.message);
-    res.status(500).json({ message: "Analysis failed", error: error.message });
+
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Analysis failed", error: err.message });
+    } else {
+      res.end();
+    }
   }
 };
 
+/* ===========================
+   RANK CVS
+=========================== */
 export const rankCvs = async (req, res) => {
-  const results = (req).session?.analysisResults || [];
-  res.json(results.sort((a, b) => b.analysis.score - a.analysis.score));
+  try {
+    const { batchId } = req.query;
+    const batch = await Batch.findOne({ batchId });
+    if (!batch) return res.status(404).json({ message: "Batch not found" });
+
+    res.json(
+      [...batch.resumes].sort(
+        (a, b) => (b.analysis?.score || 0) - (a.analysis?.score || 0)
+      )
+    );
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 };
 
+/* ===========================
+   CLEAR CVS
+=========================== */
 export const clearCvs = async (req, res) => {
   await storage.clearCvs();
   res.json({ message: "Cleared" });
