@@ -133,6 +133,9 @@ export const uploadCvs = async (req, res) => {
           extractedData: structured
         });
 
+        console.log(`✅ CV extracted successfully: ${file.originalname}`);
+
+
       } catch (err) {
         errors.push({
           filename: file.originalname,
@@ -249,6 +252,7 @@ Return ONLY a JSON object:
     }
 
     res.end();
+    console.log(`✅ Analyzation complete for batch: ${batchId}`);
 
   } catch (err) {
     if (!res.headersSent) {
