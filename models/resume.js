@@ -70,7 +70,6 @@ const referenceSchema = new mongoose.Schema({
   phone: String,
 });
 
-// ===== AI Suggestion Schema =====
 const aiSuggestionSchema = new mongoose.Schema({
   missing_details: [{ type: String }],
   missing_sections: [{ type: String }],
@@ -80,18 +79,14 @@ const aiSuggestionSchema = new mongoose.Schema({
 
 const employeeResumeSchema = new mongoose.Schema(
   {
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
+    resumeId: { type: String, unique: true },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     name: { type: String, required: true },
     email: { type: String },
     phone: { type: String },
     citations: { type: Number },
     impactFactor: { type: Number },
     scholar: { type: String },
-
     education: [educationSchema],
     experience: [experienceSchema],
     achievements: [String],
@@ -106,11 +101,28 @@ const employeeResumeSchema = new mongoose.Schema(
     technicalSkills: [technicalSkillSchema],
     membershipsAndOtherAssociations: [membershipSchema],
     reference: [referenceSchema],
-
-    ai_suggestions: aiSuggestionSchema, // <-- added AI suggestions here
+    ai_suggestions: aiSuggestionSchema,
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date },
+    deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
   },
   { timestamps: true }
 );
+
+employeeResumeSchema.pre("save", async function (next) {
+  if (!this.resumeId) {
+    const count = await mongoose.models.EmployeeResume.countDocuments();
+    this.resumeId = `EMPRES${(count + 1).toString().padStart(4, "0")}`;
+  }
+  next();
+});
+
+employeeResumeSchema.methods.softDelete = async function (userId) {
+  this.isDeleted = true;
+  this.deletedAt = new Date();
+  this.deletedBy = userId;
+  await this.save();
+};
 
 const EmployeeResume = mongoose.model("EmployeeResume", employeeResumeSchema);
 export default EmployeeResume;

@@ -12,7 +12,7 @@ const applicantSchema = new mongoose.Schema(
       ref: "Job",
       required: true,
     },
-    // Dynamic resume reference: can point to StdResume or EmployeeResume
+
     resumeId: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
@@ -21,7 +21,7 @@ const applicantSchema = new mongoose.Schema(
     resumeModel: {
       type: String,
       required: true,
-      enum: ["StdResume", "EmployeeResume"], // restrict to valid models
+      enum: ["StdResume", "EmployeeResume"],
     },
     status: {
       type: String,
@@ -32,12 +32,23 @@ const applicantSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date },
+    deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // who deleted
   },
-  { timestamps: true } // adds createdAt and updatedAt automatically
+  { timestamps: true }
 );
 
-// Compound index: prevent same user applying to the same job more than once
-applicantSchema.index({ userId: 1, jobId: 1 }, { unique: true });
+
+applicantSchema.index({ userId: 1, jobId: 1, isDeleted: 1 }, { unique: true });
+
+applicantSchema.methods.softDelete = async function (userId) {
+  this.isDeleted = true;
+  this.deletedAt = new Date();
+  this.deletedBy = userId;
+  await this.save();
+};
 
 const Applicant = mongoose.model("Applicant", applicantSchema);
 export default Applicant;

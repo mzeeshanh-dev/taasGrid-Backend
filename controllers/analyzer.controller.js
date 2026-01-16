@@ -57,7 +57,7 @@ const structureCvData = async (buffer, filename) => {
     const cvText = data?.text?.slice(0, 6000) || "";
 
     const result = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
+      model: "llama-3.3-70b-versatile",
       temperature: 0.1,
       max_tokens: 3000,
       response_format: { type: "json_object" },
@@ -208,7 +208,7 @@ Return ONLY a JSON object:
 }`;
 
         const result = await groq.chat.completions.create({
-          model: "llama-3.1-8b-instant",
+          model: "llama-3.3-70b-versatile",
           temperature: 0.1,
           response_format: { type: "json_object" },
           messages: [{ role: "user", content: analyzePrompt }]
