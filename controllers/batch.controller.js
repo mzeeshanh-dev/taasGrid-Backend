@@ -3,61 +3,52 @@ import Batch from "../models/batch.js";
 // --------------------- Upload / Add or Update Resumes ---------------------
 export const uploadBatchResumes = async (req, res) => {
     try {
-        const filesData = req.body.cvs; // expected: array of processedCvs from analyzer
-        if (!filesData || !filesData.length) return res.status(400).json({ message: "No CV data provided" });
+        const { jobId, batchNumber, cvs } = req.body;
+        if (!jobId || !cvs?.length)
+            return res.status(400).json({ message: "jobId & cvs required" });
 
-        // Single-batch logic: find batch or create
-        let batch = await Batch.findOne();
+        let batch = await Batch.findOne({ jobId, batchNumber });
+
         if (!batch) {
-            batch = new Batch({ resumes: [] });
+            batch = new Batch({
+                jobId,
+                batchNumber,
+                name: `Batch-${String(batchNumber).padStart(2, "0")}`,
+                resumes: [],
+            });
         }
 
-        filesData.forEach((cv) => {
-            // check if resume already exists -> update or push
-            const idx = batch.resumes.findIndex(r => r.cvId === cv.id);
-            const experience = cv.extractedData.experience || [];
-            const expMap = { professionalJob: 0, internship: 0, freelancing: 0, miscellaneous: 0 };
-            experience.forEach(e => {
-                const key = e.type?.toLowerCase().replace(/\s/g, "");
-                if (key && expMap[key] !== undefined) expMap[key] += e.durationMonths || 0;
-            });
-            const totalExperience = Object.values(expMap).reduce((a, b) => a + b, 0);
-
-            const resumeData = {
-                cvId: cv.id,
-                filename: cv.filename,
-                uploadDate: cv.uploadDate,
-                personalInfo: cv.extractedData.personalInfo || {},
-                degree: cv.extractedData.education?.[0]?.degree || "",
-                gpa: cv.extractedData.education?.[0]?.gpa || null,
-                experience: expMap,
-                totalExperience,
-                skills: cv.extractedData.skills?.technical || [],
-                summary: cv.extractedData.summary || "",
-                analysis: cv.analysis || {}
-            };
-
-            if (idx >= 0) batch.resumes[idx] = resumeData; // update
-            else batch.resumes.push(resumeData);           // add new
+        cvs.forEach((cv) => {
+            const idx = batch.resumes.findIndex(r => r.cv.id === cv.id);
+            if (idx >= 0) batch.resumes[idx] = cv;
+            else batch.resumes.push(cv);
         });
 
         await batch.save();
-        res.json({ success: true, resumes: batch.resumes });
-    } catch (error) {
-        console.error("Batch upload error:", error);
-        res.status(500).json({ success: false, message: error.message });
+        res.json({ success: true, batch });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
     }
 };
+
 
 // --------------------- Get batch resumes ---------------------
 export const getBatchResumes = async (req, res) => {
     try {
-        const batches = await Batch.find().sort({ createdAt: 1 });
-        res.json({ batches });
+        const { jobId } = req.params;     // <-- use params now
+
+        if (!jobId) {
+            return res.status(400).json({ message: "jobId required" });
+        }
+
+        const batches = await Batch.find({ jobId }).sort({ batchNumber: 1 });
+        return res.json({ batches });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        console.error("Get batch resumes error:", error);
+        return res.status(500).json({ message: error.message });
     }
 };
+
 
 
 // --------------------- Update batch / patch analysis ---------------------

@@ -4,7 +4,8 @@ import {
   getJobs,
   deleteJob,
   updateJobStatus,
-  getInternships
+  getInternships,
+  getJobCriteria
 } from "../controllers/job.controller.js";
 const router = express.Router();
 
@@ -13,4 +14,6 @@ router.get("/", getJobs);
 router.delete("/:id", deleteJob);
 router.put("/jobs/:id", updateJobStatus);
 router.get("/internships", getInternships);
+router.get("/criteria/:jobId", getJobCriteria);
+
 export default router;

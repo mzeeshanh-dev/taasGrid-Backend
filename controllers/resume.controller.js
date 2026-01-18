@@ -2,15 +2,15 @@ import EmployeeResume from "../models/resume.js";
 
 export const saveEmployeeResume = async (req, res) => {
   try {
-    const { 
-      userId, 
-      ai_suggestions, 
-      planType = "Basic", 
-      name, 
+    const {
+      userId,
+      ai_suggestions,
+      planType = "Basic",
+      name,
       email,
-      experience, 
-      education, 
-      ...rest 
+      experience,
+      education,
+      ...rest
     } = req.body;
 
     // ✅ Validate required fields

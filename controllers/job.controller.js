@@ -161,3 +161,51 @@ export const getInternships = async (req, res) => {
     });
   }
 };
+
+
+export const getJobCriteria = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+
+    if (!jobId) {
+      return res.status(400).json({
+        success: false,
+        message: "jobId is required",
+      });
+    }
+
+    // Accept both MongoDB _id and custom jobId
+    const query = mongoose.Types.ObjectId.isValid(jobId)
+      ? { $or: [{ _id: jobId }, { jobId: jobId }] }
+      : { jobId: jobId };
+
+    const job = await Job.findOne(query);
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: "Job not found",
+      });
+    }
+
+    const criteria = {
+      requirements: job.requirements || [],
+      experience: job.experience,
+      qualification: job.qualification,
+      location: job.location,
+      jobType: job.jobType,
+      workType: job.workType,
+    };
+
+    return res.status(200).json({
+      success: true,
+      criteria,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch criteria",
+      error: error.message,
+    });
+  }
+};

@@ -165,9 +165,10 @@ export const uploadCvs = async (req, res) => {
 =========================== */
 export const analyzeCvs = async (req, res) => {
   try {
-    const { batchId, batchName, criteria } = req.body;
-    if (!batchId || !batchName) {
-      return res.status(400).json({ message: "batchId and batchName required" });
+    const { batchId, batchName, criteria, jobId } = req.body;
+
+    if (!batchId || !batchName || !jobId) {
+      return res.status(400).json({ message: "batchId, batchName and jobId required" });
     }
 
     const cvs = await storage.getCvs();
@@ -178,7 +179,7 @@ export const analyzeCvs = async (req, res) => {
 
     await Batch.findOneAndUpdate(
       { batchId },
-      { name: batchName, resumes: [], updatedAt: new Date() },
+      { name: batchName, jobId, resumes: [], updatedAt: new Date() },
       { upsert: true }
     );
 
@@ -262,6 +263,7 @@ Return ONLY a JSON object:
     }
   }
 };
+
 
 /* ===========================
    RANK CVS
