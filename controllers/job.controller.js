@@ -209,3 +209,49 @@ export const getJobCriteria = async (req, res) => {
     });
   }
 };
+
+
+export const getJobById = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+
+    if (!jobId) {
+      return res.status(400).json({
+        success: false,
+        message: "jobId is required",
+      });
+    }
+
+    // Accept both MongoDB _id and custom jobId
+    const query = mongoose.Types.ObjectId.isValid(jobId)
+      ? { $or: [{ _id: jobId }, { jobId: jobId }] }
+      : { jobId: jobId };
+
+    const job = await Job.findOne(query).populate({
+      path: "postedBy",
+      select: "companyName email logo address companyId",
+      strictPopulate: false,
+    });
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: "Job not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      job,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch job",
+      error: error.message,
+    });
+  }
+};
+
+
+
