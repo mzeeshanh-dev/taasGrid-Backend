@@ -53,3 +53,6 @@ studentResumeSchema.methods.softDelete = async function (userId) {
 
 export const StudentResume =
   mongoose.models.StdResume || mongoose.model("StdResume", studentResumeSchema);
+
+
+export default StudentResume;

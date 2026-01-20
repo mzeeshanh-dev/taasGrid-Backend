@@ -1,3 +1,4 @@
+import axios from "axios";
 import Applicant from "../models/applicant.js";
 import User from "../models/user.js";
 import Batch from "../models/batch.js";
@@ -51,23 +52,34 @@ export const createApplicant = async (req, res) => {
   }
 };
 // ------------------ GET ALL APPLICANTS (OPTIONAL FILTER BY JOB) ------------------
+
 export const getApplicants = async (req, res) => {
   try {
-    const { userId } = req.query; // <-- IMPORTANT
+    const { userId } = req.query;
 
-    const applicants = await Applicant.find({ userId }) // <-- ONLY current user
+    const query = userId ? { userId } : {};
+
+    const applicants = await Applicant.find(query)
       .populate("userId", "email name")
       .populate("resumeId");
 
+    // Fetch all batch candidates from your batch route
+    const batchRes = await axios.get("http://localhost:3001/api/batch/candidates/all");
+    const batchCandidates = batchRes.data?.candidates || [];
+
+    // Merge both arrays
+    const combined = [...applicants, ...batchCandidates];
+
     res.status(200).json({
       success: true,
-      applicants,
+      applicants: combined,
     });
-
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+
 // ------------------ GET SINGLE APPLICANT ------------------
 export const getApplicantById = async (req, res) => {
   try {
@@ -230,3 +242,83 @@ export const getBulkApplicantsByJob = async (req, res) => {
   }
 };
 
+
+
+export const createBulkApplicant = async (req, res) => {
+  try {
+    const { jobId, extractedData, resumeUrl } = req.body;
+
+    if (!jobId) {
+      return res.status(400).json({
+        success: false,
+        message: "jobId is required",
+      });
+    }
+
+    const email = extractedData?.personalInfo?.email?.toLowerCase();
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Bulk candidate email is required",
+      });
+    }
+
+    // 1) Check portal applicants with same email
+    const portalExists = await Applicant.findOne({
+      jobId,
+      source: "Portal",
+    }).populate("userId", "email");
+
+    if (portalExists && portalExists.userId?.email?.toLowerCase() === email) {
+      return res.status(400).json({
+        success: false,
+        message: "This candidate already applied via portal",
+      });
+    }
+
+    // 2) Check if bulk candidate already exists
+    const bulkExists = await Applicant.findOne({
+      jobId,
+      source: "Bulk",
+      "extractedData.personalInfo.email": email,
+    });
+
+    if (bulkExists) {
+      return res.status(400).json({
+        success: false,
+        message: "This bulk candidate is already in pipeline",
+      });
+    }
+
+    // 3) Create bulk applicant
+    const newApplicant = await Applicant.create({
+      jobId,
+      source: "Bulk",
+      status: "Applied",
+      resumeUrl,
+      extractedData,
+      userId: new mongoose.Types.ObjectId(),
+      resumeModel: "BulkResume",
+    });
+
+    return res.status(201).json({
+      success: true,
+      applicant: newApplicant,
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "This candidate is already in your pipeline for this job.",
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};

@@ -24,6 +24,7 @@ const applicantSchema = new mongoose.Schema(
       required: function () { return this.source === "Portal"; },
       enum: ["StdResume", "EmployeeResume", "BulkResume"],
     },
+    score: { type: Number, default: 0 },
     // ✅ SOURCE logic strictly added
     source: {
       type: String,

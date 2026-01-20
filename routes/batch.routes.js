@@ -15,5 +15,7 @@ router.put("/resume", batchController.updateBatchResume);
 
 // Clear batches by job
 router.post("/clear", batchController.clearBatch);
+router.get("/candidates/all", batchController.getAllBatchCandidates);
+
 
 export default router;

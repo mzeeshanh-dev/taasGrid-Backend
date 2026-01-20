@@ -86,3 +86,33 @@ export const clearBatch = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+
+
+
+
+export const getAllBatchCandidates = async (req, res) => {
+    try {
+        const batches = await Batch.find({}).sort({ batchNumber: 1 });
+
+        let allResumes = [];
+        batches.forEach(batch => {
+            allResumes = allResumes.concat(batch.resumes || []);
+        });
+
+        // Remove duplicates by cv.id
+        const uniqueResumesMap = new Map();
+        allResumes.forEach(resume => {
+            if (!uniqueResumesMap.has(resume.cv.id)) {
+                uniqueResumesMap.set(resume.cv.id, resume);
+            }
+        });
+
+        const uniqueResumes = Array.from(uniqueResumesMap.values());
+
+        res.json({ success: true, candidates: uniqueResumes });
+
+    } catch (err) {
+        console.error("Get all batch candidates error:", err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};

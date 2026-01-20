@@ -7,6 +7,7 @@ import {
   deleteApplicant,
   getApplicantsByJob,
   getBulkApplicantsByJob,
+  createBulkApplicant,
 } from "../controllers/applicant.controller.js";
 
 const router = express.Router();
@@ -19,6 +20,7 @@ router.delete("/:id", deleteApplicant); // Delete applicant
 router.get("/job/:jobId", getApplicantsByJob);
 
 router.get("/job/viaBulk/:jobId", getBulkApplicantsByJob);
+router.post("/bulk/create", createBulkApplicant);   // ✅ NEW
 
 
 export default router;
