@@ -54,13 +54,15 @@ export const getBatchResumes = async (req, res) => {
 // --------------------- Update batch / patch analysis ---------------------
 export const updateBatchResume = async (req, res) => {
     try {
-        const { cvId, analysis } = req.sbody;
+        const { cvId, analysis } = req.body;
+        const { batchId } = req.params;
+
         if (!cvId || !analysis) return res.status(400).json({ message: "cvId and analysis required" });
 
-        const batch = await Batch.findOne();
+        const batch = await Batch.findOne({ batchId });
         if (!batch) return res.status(404).json({ message: "Batch not found" });
 
-        const idx = batch.resumes.findIndex(r => r.cvId === cvId);
+        const idx = batch.resumes.findIndex(r => r.cv.id === cvId);
         if (idx === -1) return res.status(404).json({ message: "Resume not found" });
 
         batch.resumes[idx].analysis = analysis;
@@ -68,19 +70,22 @@ export const updateBatchResume = async (req, res) => {
 
         res.json({ success: true, resume: batch.resumes[idx] });
     } catch (error) {
-        console.error("Batch update error:", error);
         res.status(500).json({ message: error.message });
     }
 };
 
+
 // --------------------- Clear batch ---------------------
 export const clearBatch = async (req, res) => {
     try {
-        const batch = await Batch.findOne();
+        const { batchId } = req.params;
+        const batch = await Batch.findOne({ batchId });
+
         if (batch) {
             batch.resumes = [];
             await batch.save();
         }
+
         res.json({ success: true, message: "Batch cleared" });
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -116,3 +121,5 @@ export const getAllBatchCandidates = async (req, res) => {
         res.status(500).json({ success: false, message: err.message });
     }
 };
+
+

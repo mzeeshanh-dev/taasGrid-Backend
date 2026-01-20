@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import Batch from "../models/batch.js";
 import pdf from "pdf-parse-fixed";
+import { createBulkApplicantsFromBatch } from "./applicant.controller.js";
 
 dotenv.config();
 
@@ -241,6 +242,8 @@ Return ONLY a JSON object:
           { $push: { resumes: payload } }
         );
 
+
+
         processed.add(cv.id);
 
       } catch (err) {
@@ -252,6 +255,8 @@ Return ONLY a JSON object:
       }
     }
 
+    const batch = await Batch.findOne({ batchId });
+    await createBulkApplicantsFromBatch(batch);
     res.end();
     console.log(`✅ Analyzation complete for batch: ${batchId}`);
 
