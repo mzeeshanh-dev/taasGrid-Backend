@@ -262,6 +262,7 @@ export const createBulkApplicant = async (req, res) => {
       extractedData,
       userId: new mongoose.Types.ObjectId(),
       resumeModel: "BulkResume",
+      score: resume.analysis?.score || 0,
       appliedAt: new Date(),
     });
 
@@ -307,6 +308,7 @@ export const createBulkApplicantsFromBatch = async (batch) => {
       extractedData: resume.extractedData,
       userId: new mongoose.Types.ObjectId(),
       resumeModel: "BulkResume",
+      score: resume.analysis?.score || 0,
       appliedAt: new Date(),
     });
 
@@ -315,3 +317,4 @@ export const createBulkApplicantsFromBatch = async (batch) => {
 
   return created;
 };
+
