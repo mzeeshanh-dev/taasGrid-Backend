@@ -79,22 +79,52 @@ export const getApplicantById = async (req, res) => {
 };
 
 // ------------------ UPDATE APPLICANT STATUS ------------------
+
 export const updateApplicantStatus = async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, isBulk, jobId, extractedData, resumeUrl } = req.body;
     const applicantId = req.params.id;
 
-    const applicant = await Applicant.findByIdAndUpdate(
-      applicantId,
-      { status },
-      { new: true }
-    ).populate("userId", "name email").populate("resumeId");
+    let applicant;
+
+    // If bulk, update by _id first
+    applicant = await Applicant.findById(applicantId);
+
+    // If not found, try by email+jobId (Bulk)
+    if (!applicant && isBulk && extractedData?.personalInfo?.email) {
+      const email = extractedData.personalInfo.email.toLowerCase();
+      applicant = await Applicant.findOne({
+        jobId,
+        source: "Bulk",
+        "extractedData.personalInfo.email": email,
+      });
+    }
 
     if (!applicant) {
       return res.status(404).json({ success: false, message: "Applicant not found" });
     }
 
-    res.status(200).json({ success: true, applicant });
+    // update status + flags
+    applicant.status = status;
+    applicant.isShortlisted = status === "Shortlisted";
+    applicant.isInterviewed = status === "Interviewed";
+    applicant.isRejected = status === "Rejected";
+    applicant.isHired = status === "Hired";
+    applicant.isReviewed = status === "Reviewed";
+    applicant.isApplied = status === "Applied";
+
+    // update optional data
+    if (resumeUrl) applicant.resumeUrl = resumeUrl;
+    if (extractedData) applicant.extractedData = extractedData;
+
+    await applicant.save();
+
+    const updated = await Applicant.findById(applicant._id)
+      .populate("userId", "name email")
+      .populate("resumeId");
+
+    res.status(200).json({ success: true, applicant: updated });
+
   } catch (error) {
     if (error.code === 11000) {
       return res.status(400).json({
@@ -105,6 +135,7 @@ export const updateApplicantStatus = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 // ------------------ DELETE APPLICANT ------------------
 export const deleteApplicant = async (req, res) => {
@@ -153,34 +184,22 @@ export const getBulkApplicantsByJob = async (req, res) => {
       return res.status(400).json({ success: false, message: "jobId required" });
     }
 
-    const portalApplicants = await Applicant.find({ jobId, source: "Portal" })
-      .populate("userId", "email");
-
-    const portalEmails = portalApplicants
-      .map(a => a.userId?.email)
-      .filter(Boolean)
-      .map(e => e.toLowerCase());
-
+    // 1) create bulk applicants from batch if not created
     const batches = await Batch.find({ jobId, isDeleted: false });
 
-    const bulkCandidates = batches.flatMap(batch =>
-      batch.resumes.map(resume => ({
-        batchId: batch._id,
-        batchName: batch.name,
-        isBulk: true,
-        ...resume.toObject()
-      }))
-    );
+    for (const batch of batches) {
+      await createBulkApplicantsFromBatch(batch);
+    }
 
-    const filteredBulk = bulkCandidates.filter(c =>
-      c.extractedData?.personalInfo?.email &&
-      !portalEmails.includes(c.extractedData.personalInfo.email.toLowerCase())
-    );
+    // 2) return applicants from DB (source Bulk)
+    const bulkApplicants = await Applicant.find({ jobId, source: "Bulk" })
+      .populate("userId", "email")
+      .populate("resumeId");
 
     res.status(200).json({
       success: true,
-      total: filteredBulk.length,
-      applicants: filteredBulk
+      total: bulkApplicants.length,
+      applicants: bulkApplicants,
     });
 
   } catch (error) {
@@ -188,6 +207,7 @@ export const getBulkApplicantsByJob = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 // ------------------ CREATE BULK APPLICANT ------------------
 export const createBulkApplicant = async (req, res) => {
