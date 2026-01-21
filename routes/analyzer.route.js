@@ -9,6 +9,8 @@ router.post("/upload", upload.array('files'), cvController.uploadCvs);
 router.post("/analyze", cvController.analyzeCvs);
 router.post("/rank", cvController.rankCvs);
 router.post("/clear", cvController.clearCvs);
+router.post("/analyze/portal/:jobId", cvController.analyzePortalApplicants);
+
 
 
 export default router;

@@ -5,6 +5,8 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import Batch from "../models/batch.js";
 import pdf from "pdf-parse-fixed";
+import axios from "axios";
+import Applicant from "../models/applicant.js";
 import { createBulkApplicantsFromBatch } from "./applicant.controller.js";
 
 dotenv.config();
@@ -296,3 +298,105 @@ export const clearCvs = async (req, res) => {
   await storage.clearCvs();
   res.json({ message: "Cleared" });
 };
+
+
+
+// =========================
+// ANALYZE PORTAL APPLICANTS
+// =========================
+
+export const analyzePortalApplicants = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+
+    console.log("Analyze started for jobId:", jobId);
+
+    if (!jobId) {
+      return res.status(400).json({
+        success: false,
+        message: "jobId required"
+      });
+    }
+
+    const criteriaRes = await axios.get(
+      `http://localhost:3001/api/jobs/criteria/${jobId}`
+    );
+
+    const criteria = criteriaRes.data.criteria || criteriaRes.data || {};
+    console.log("Criteria:", criteria);
+
+    const portalApplicants = await Applicant.find({
+      jobId,
+      source: "Portal"
+    }).populate("resumeId");
+
+    console.log("Portal applicants count:", portalApplicants.length);
+
+    if (!portalApplicants.length) {
+      return res.status(200).json({
+        success: true,
+        message: "No portal applicants found",
+        updated: 0,
+        alreadyAnalyzed: false
+      });
+    }
+
+    let updatedCount = 0;
+
+    for (const app of portalApplicants) {
+
+      // ⛔️ SKIP if score already exists
+      if (app.score && app.score > 0) {
+        console.log(`Skipping already analyzed applicant: ${app._id}`);
+        continue;
+      }
+
+      const resumeData = app.resumeId || app.extractedData || {};
+
+      const analyzePrompt = `
+        Analyze this candidate against criteria: ${JSON.stringify(criteria)}
+        Candidate Data: ${JSON.stringify(resumeData)}
+        Return ONLY a JSON object:
+        {
+          "score": 0-100,
+          "matchPercentage": 0-100,
+          "matchDetails": "",
+          "strengths": [],
+          "gaps": [],
+          "recommendations": [],
+          "matchedSkills": [],
+          "experienceMatch": ""
+        }
+      `;
+
+      const result = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.1,
+        response_format: { type: "json_object" },
+        messages: [{ role: "user", content: analyzePrompt }]
+      });
+
+      const analysis = JSON.parse(result.choices[0].message.content);
+      const score = Math.min(100, Math.max(0, analysis.score || 0));
+
+      app.score = score;
+      await app.save();
+
+      console.log(`Applicant ${app._id} scored:`, score);
+
+      updatedCount++;
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Portal applicants analyzed successfully",
+      updated: updatedCount,
+      alreadyAnalyzed: updatedCount === 0
+    });
+
+  } catch (err) {
+    console.error("Analyze portal applicants error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
