@@ -8,12 +8,13 @@ import {
   getJobCriteria,
   getJobById
 } from "../controllers/job.controller.js";
+import { requireCompanyAuth } from "../middleware/authCompany.middleware.js";
 const router = express.Router();
 
-router.post("/", createJob);
+router.post("/", requireCompanyAuth, createJob);
 router.get("/", getJobs);
-router.delete("/:id", deleteJob);
-router.put("/jobs/:id", updateJobStatus);
+router.delete("/:id", requireCompanyAuth, deleteJob);
+router.put("/jobs/:id", requireCompanyAuth, updateJobStatus);
 router.get("/internships", getInternships);
 router.get("/criteria/:jobId", getJobCriteria);
 router.get("/:jobId", getJobById);
