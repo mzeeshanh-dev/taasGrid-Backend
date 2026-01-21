@@ -2,7 +2,7 @@ import Applicant from "../models/applicant.js";
 import Batch from "../models/batch.js";
 import mongoose from "mongoose";
 
-// ------------------ CREATE APPLICANT ------------------
+// ------------------ CREATE APPLICANT (PORTAL) ------------------
 export const createApplicant = async (req, res) => {
   try {
     const { userId, jobId, resumeId, resumeModel } = req.body;
@@ -10,38 +10,52 @@ export const createApplicant = async (req, res) => {
     if (!userId || !jobId || !resumeId || !resumeModel) {
       return res.status(400).json({
         success: false,
-        message: "userId, jobId, resumeId, and resumeModel are required"
+        message: "userId, jobId, resumeId, and resumeModel are required",
       });
     }
 
     if (!["StdResume", "EmployeeResume"].includes(resumeModel)) {
       return res.status(400).json({
         success: false,
-        message: "resumeModel must be either 'StdResume' or 'EmployeeResume'"
+        message: "Invalid resumeModel",
       });
     }
 
-    const existing = await Applicant.findOne({ userId, jobId });
-    if (existing) {
-      return res.status(400).json({ success: false, message: "You have already applied for this job" });
-    }
-
-    const applicant = new Applicant({ userId, jobId, resumeId, resumeModel });
-    await applicant.save();
+    const applicant = await Applicant.create({
+      userId,
+      jobId,
+      resumeId,
+      resumeModel,
+      source: "Portal",
+      status: "Applied",
+      isApplied: true,
+      appliedAt: new Date(),
+    });
 
     const populatedApplicant = await Applicant.findById(applicant._id)
       .populate("userId", "name email")
       .populate("resumeId");
 
-    res.status(201).json({ success: true, applicant: populatedApplicant });
+    return res.status(201).json({
+      success: true,
+      applicant: populatedApplicant,
+    });
 
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(400).json({ success: false, message: "You have already applied for this job" });
+      return res.status(409).json({
+        success: false,
+        message: "You have already applied for this job",
+      });
     }
-    res.status(500).json({ success: false, message: error.message });
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
+
 
 // ------------------ GET ALL APPLICANTS ------------------
 export const getApplicants = async (req, res) => {
@@ -283,38 +297,45 @@ export const createBulkApplicant = async (req, res) => {
 };
 
 // ------------------ CREATE BULK APPLICANTS FROM BATCH ------------------
+// ------------------ CREATE BULK APPLICANTS FROM BATCH ------------------
 export const createBulkApplicantsFromBatch = async (batch) => {
-  if (!batch) return [];
+  if (!batch || !batch.jobId || !Array.isArray(batch.resumes)) return;
 
   const jobId = batch.jobId;
-  const created = [];
 
   for (const resume of batch.resumes) {
-    const email = resume.extractedData?.personalInfo?.email?.toLowerCase();
-    if (!email) continue;
+    try {
+      const email =
+        resume.extractedData?.personalInfo?.email?.toLowerCase();
 
-    const exists = await Applicant.findOne({
-      jobId,
-      "extractedData.personalInfo.email": email,
-    });
+      if (!email) continue;
 
-    if (exists) continue;
+      await Applicant.create({
+        jobId,
+        source: "Bulk",
+        status: "Applied",
+        isApplied: true,
+        resumeUrl: resume.resumeUrl || resume.cv?.url,
+        extractedData: resume.extractedData,
+        userId: new mongoose.Types.ObjectId(), // dummy user
+        resumeModel: "BulkResume",
+        score: resume.analysis?.score || 0,
+        appliedAt: new Date(),
+      });
 
-    const newApplicant = await Applicant.create({
-      jobId,
-      source: "Bulk",
-      status: "Applied",
-      resumeUrl: resume.resumeUrl || resume.cv?.url,
-      extractedData: resume.extractedData,
-      userId: new mongoose.Types.ObjectId(),
-      resumeModel: "BulkResume",
-      score: resume.analysis?.score || 0,
-      appliedAt: new Date(),
-    });
+    } catch (error) {
+      // 🔥 DUPLICATE → SILENT SKIP
+      if (error.code === 11000) {
+        continue;
+      }
 
-    created.push(newApplicant);
+      // real error → log & continue (never crash batch)
+      console.error(
+        `Bulk applicant error for job ${jobId}:`,
+        error.message
+      );
+    }
   }
-
-  return created;
 };
+
 
