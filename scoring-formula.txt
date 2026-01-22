@@ -1,0 +1,65 @@
+# Scoring formula + Ready-to-use prompt + JSON output schema
+
+Below I give (1) a clear, repeatable **scoring formula** you can implement, (2) a **single ready-to-paste prompt** that performs parsing + scoring (uses the formula and returns a valid JSON object), and (3) a **JSON schema / example** your system should return. Use the prompt exactly as-is inside your CV-parsing pipeline.
+
+---
+
+## 1) Scoring formula (human-readable rules)
+
+**Total = 100 points**, distributed as:
+
+* **Experience — 45 points total**
+
+  * Professional (full-time/corporate): **30 pts**
+
+    * Score rule: `professional_score = min(professional_months / required_professional_months, 1.0) * 30`
+    * Default `required_professional_months = 24` unless job data specifies otherwise.
+  * Freelancing / Contract: **8 pts**
+
+    * `freelance_score = min(freelance_months / required_freelance_months, 1.0) * 8`
+    * Default `required_freelance_months = 12`.
+  * Internships: **7 pts**
+
+    * `internship_score = min(internship_months / required_internship_months, 1.0) * 7`
+    * Default `required_internship_months = 6`.
+
+* **Skills Match — 25 points**
+
+  * Technical skills match: **18 pts**
+
+    * `technical_score = (sum(weighted_matches) / sum(required_weights)) * 18`
+
+      * If job lists priority for skills, use that priority as weights; otherwise treat all required skills equal.
+  * Tools & frameworks match: **4 pts**
+  * Soft skills match (if job lists): **3 pts**
+
+* **Role / Title Fit — 10 points**
+
+  * Exact title match or seniority (e.g., "Senior", "Lead") aligned with job: full 10.
+  * Partial match (shared keywords or seniority close): fractional.
+  * Use lexical matching + synonyms + seniority match.
+
+* **Education — 10 points**
+
+  * Degree & field match, university reputation, and GPA: combine to ≤10.
+  * Example: degree match (6), relevant field (2), GPA or honors (2). Adjust if job prioritizes degree.
+
+* **Location & Availability — 5 points**
+
+  * Same city: full 5. Same country: partial (e.g., 3). Remote or open-to-relocate: full if job allows remote.
+
+* **Miscellaneous / Other Experience — 5 points**
+
+  * Non-technical roles, volunteering, certifications, publications, awards — scored proportionally.
+
+**Other rules / tie-breakers / penalties**
+
+* Use **months** as unit. For date ranges:
+
+  * Count months inclusively from start-month to end-month. If end is "Present", use the current date.
+  * Example: `Aug 2024 - Jan 2026` → Aug 2024 → Jan 2026 inclusive = 17 months (per your rule).
+* **Gaps**: continuous employment gaps > 12 months reduce Experience score by up to 10% of the experience portion (apply proportionally).
+* **Capping**: each sub-score is capped to its section weight (no overflow).
+* **Rounding**: return scores as floats with two decimal places.
+
+---
