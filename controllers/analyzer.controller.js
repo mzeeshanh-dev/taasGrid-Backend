@@ -48,7 +48,8 @@ const structureCvData = async (buffer, filename) => {
       "location": "City, Country",
       "professionalJob": 0, 
       "internship": 0, 
-      "freelancing": 0 
+      "freelancing": 0,
+      "others": 0
     },
     "education": [{ "degree": "", "university": "", "gpa": "", "duration": "" }],
     "experience": [{ "years": "", "details": { "company": "", "position": "", "responsibilities": [] } }],

@@ -163,6 +163,7 @@ export const getInternships = async (req, res) => {
 };
 
 
+
 export const getJobCriteria = async (req, res) => {
   try {
     const { jobId } = req.params;
@@ -176,10 +177,11 @@ export const getJobCriteria = async (req, res) => {
 
     // Accept both MongoDB _id and custom jobId
     const query = mongoose.Types.ObjectId.isValid(jobId)
-      ? { $or: [{ _id: jobId }, { jobId: jobId }] }
-      : { jobId: jobId };
+      ? { $or: [{ _id: jobId }, { jobId }] }
+      : { jobId };
 
-    const job = await Job.findOne(query);
+    const job = await Job.findOne(query)
+      .populate("postedBy", "companyName companyId"); // 👈 IMPORTANT LINE
 
     if (!job) {
       return res.status(404).json({
@@ -189,6 +191,9 @@ export const getJobCriteria = async (req, res) => {
     }
 
     const criteria = {
+      companyName: job.postedBy?.companyName || "N/A",
+      companyId: job.postedBy?.companyId || null,
+
       requirements: job.requirements || [],
       experience: job.experience,
       qualification: job.qualification,
@@ -209,6 +214,7 @@ export const getJobCriteria = async (req, res) => {
     });
   }
 };
+
 
 
 export const getJobById = async (req, res) => {
