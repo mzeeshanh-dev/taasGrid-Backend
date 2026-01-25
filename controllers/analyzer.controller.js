@@ -172,7 +172,9 @@ export const analyzeCvs = async (req, res) => {
     const { batchId, batchName, criteria, jobId } = req.body;
 
     if (!batchId || !batchName || !jobId) {
-      return res.status(400).json({ message: "batchId, batchName and jobId required" });
+      return res.status(400).json({
+        message: "batchId, batchName and jobId required"
+      });
     }
 
     const cvs = await storage.getCvs();
@@ -191,26 +193,73 @@ export const analyzeCvs = async (req, res) => {
 
     for (const cv of cvs) {
       if (processed.has(cv.id)) continue;
-      if (processed.size > 0) await delay(500);
+      if (processed.size > 0) await delay(300);
 
       try {
         const buffer = Buffer.from(cv.content, "base64");
         const structured = await structureCvData(buffer, cv.filename);
 
+        /* ===============================
+           EXPERIENCE — MONTH BASED ONLY
+        ================================ */
+
+        const {
+          professionalJob = 0,
+          freelancing = 0,
+          internship = 0
+        } = structured.personalInfo || {};
+
+        const experience = {
+          professional: clamp(round(Math.min(professionalJob / 24, 1) * 30, 2), 0, 30),
+          freelancing: clamp(round(Math.min(freelancing / 12, 1) * 8, 2), 0, 8),
+          internship: clamp(round(Math.min(internship / 6, 1) * 7, 2), 0, 7),
+          gapPenaltyApplied: false
+        };
+
+        experience.total = round(
+          experience.professional +
+          experience.freelancing +
+          experience.internship,
+          2
+        );
+
+        /* ===============================
+           AI — NON-EXPERIENCE ONLY
+        ================================ */
+
         const analyzePrompt = `
-Analyze this CV against criteria: ${JSON.stringify(criteria)}
-CV Data: ${JSON.stringify(structured)}
-Return ONLY a JSON object:
+You are an ATS scoring engine.
+
+DO NOT calculate experience scores.
+DO NOT use years — months only.
+DO NOT invent numbers.
+
+Return ONLY JSON.
+
+Job Criteria:
+${JSON.stringify(criteria)}
+
+Candidate Data:
+${JSON.stringify(structured)}
+
+Return:
 {
-  "score": 0-100,
-  "matchPercentage": 0-100,
-  "matchDetails": "",
+  "skills": {
+    "technical": 0,
+    "tools": 0,
+    "soft": 0
+  },
+  "roleFit": 0,
+  "education": 0,
+  "location": 0,
+  "other": 0,
+  "matchedSkills": [],
   "strengths": [],
   "gaps": [],
   "recommendations": [],
-  "matchedSkills": [],
-  "experienceMatch": ""
-}`;
+  "experienceMatchSummary": ""
+}
+`;
 
         const result = await groq.chat.completions.create({
           model: "llama-3.3-70b-versatile",
@@ -219,20 +268,80 @@ Return ONLY a JSON object:
           messages: [{ role: "user", content: analyzePrompt }]
         });
 
-        const analysis = JSON.parse(result.choices[0].message.content);
+        const ai = JSON.parse(result.choices[0].message.content);
+
+        /* ===============================
+           NORMALIZE + CAP AI SCORES
+        ================================ */
+
+        const skills = {
+          technical: clamp(round(ai.skills?.technical || 0, 2), 0, 18),
+          tools: clamp(round(ai.skills?.tools || 0, 2), 0, 4),
+          soft: clamp(round(ai.skills?.soft || 0, 2), 0, 3)
+        };
+        skills.total = round(
+          skills.technical + skills.tools + skills.soft,
+          2
+        );
+
+        const roleFit = clamp(round(ai.roleFit || 0, 2), 0, 10);
+        const education = clamp(round(ai.education || 0, 2), 0, 10);
+        const location = clamp(round(ai.location || 0, 2), 0, 5);
+        const other = clamp(round(ai.other || 0, 2), 0, 5);
+
+        /* ===============================
+           DISTRIBUTED SCORES (OUT OF 100)
+        ================================ */
+
+        const distributed_scores = {
+          experience: experience.total,
+          skills: skills.total,
+          roleFit,
+          education,
+          location,
+          other
+        };
+
+        distributed_scores.total = round(
+          Object.values(distributed_scores)
+            .filter(v => typeof v === "number")
+            .reduce((a, b) => a + b, 0),
+          2
+        );
+
+        const finalScore = Math.round(
+          clamp(distributed_scores.total, 0, 100)
+        );
+
+
+        /* ===============================
+           FINAL PAYLOAD
+        ================================ */
 
         const payload = {
-          cv: { id: cv.id, filename: cv.filename, uploadDate: cv.uploadDate },
+          cv: {
+            id: cv.id,
+            filename: cv.filename,
+            uploadDate: cv.uploadDate
+          },
           extractedData: structured,
           analysis: {
-            score: Math.min(100, Math.max(0, analysis.score || 0)),
-            matchPercentage: Math.min(100, Math.max(0, analysis.matchPercentage || 0)),
-            matchDetails: analysis.matchDetails || "",
-            strengths: analysis.strengths || [],
-            gaps: analysis.gaps || [],
-            recommendations: analysis.recommendations || [],
-            matchedSkills: analysis.matchedSkills || [],
-            experienceMatch: analysis.experienceMatch || "",
+            score: finalScore,
+            matchPercentage: finalScore,
+            scoreBreakdown: {
+              experience,
+              skills,
+              roleFit,
+              education,
+              location,
+              other
+            },
+            distributed_scores,
+            matchedSkills: ai.matchedSkills || [],
+            strengths: ai.strengths || [],
+            gaps: ai.gaps || [],
+            recommendations: ai.recommendations || [],
+            experienceMatch: ai.experienceMatchSummary || "",
             locked: false,
             analyzedAt: new Date()
           }
@@ -244,8 +353,6 @@ Return ONLY a JSON object:
           { batchId },
           { $push: { resumes: payload } }
         );
-
-
 
         processed.add(cv.id);
 
@@ -260,17 +367,36 @@ Return ONLY a JSON object:
 
     const batch = await Batch.findOne({ batchId });
     await createBulkApplicantsFromBatch(batch);
+
     res.end();
-    console.log(`✅ Analyzation complete for batch: ${batchId}`);
+    console.log(`✅ Analysis complete for batch: ${batchId}`);
 
   } catch (err) {
     if (!res.headersSent) {
-      res.status(500).json({ message: "Analysis failed", error: err.message });
+      res.status(500).json({
+        message: "Analysis failed",
+        error: err.message
+      });
     } else {
       res.end();
     }
   }
 };
+
+
+
+
+function round(value, decimals) {
+  return Number(Number(value || 0).toFixed(decimals));
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+
+
+
 
 
 /* ===========================
@@ -355,20 +481,40 @@ export const analyzePortalApplicants = async (req, res) => {
       const resumeData = app.resumeId || app.extractedData || {};
 
       const analyzePrompt = `
-        Analyze this candidate against criteria: ${JSON.stringify(criteria)}
-        Candidate Data: ${JSON.stringify(resumeData)}
-        Return ONLY a JSON object:
-        {
-          "score": 0-100,
-          "matchPercentage": 0-100,
-          "matchDetails": "",
-          "strengths": [],
-          "gaps": [],
-          "recommendations": [],
-          "matchedSkills": [],
-          "experienceMatch": ""
-        }
-      `;
+You are an ATS scoring engine.
+
+DO NOT calculate experience scores.
+DO NOT use years — months only.
+DO NOT invent numbers.
+
+Return ONLY JSON.
+
+Job Criteria:
+${JSON.stringify(criteria)}
+
+Candidate Data:
+${JSON.stringify(resumeData)}
+
+Return:
+{ "score":0,
+  "skills": {
+    "technical": 0,
+    "tools": 0,
+    "soft": 0
+  },
+  "roleFit": 0,
+  "education": 0,
+  "location": 0,
+  "other": 0,
+  "matchedSkills": [],
+  "strengths": [],
+  "gaps": [],
+  "recommendations": [],
+  "experienceMatchSummary": ""
+}
+`;
+
+
 
       const result = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
@@ -378,7 +524,11 @@ export const analyzePortalApplicants = async (req, res) => {
       });
 
       const analysis = JSON.parse(result.choices[0].message.content);
-      const score = Math.min(100, Math.max(0, analysis.score || 0));
+
+      const score = Math.round(
+        Math.min(100, Math.max(0, analysis.score || 0))
+      );
+
 
       app.score = score;
       await app.save();

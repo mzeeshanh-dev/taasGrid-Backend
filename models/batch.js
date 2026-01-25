@@ -13,6 +13,28 @@ const ResumeSchema = new mongoose.Schema({
         score: Number,
         matchPercentage: Number,
         matchDetails: String,
+
+        // NEW
+        scoreBreakdown: {
+            experience: {
+                professional: Number,
+                freelancing: Number,
+                internship: Number,
+                gapPenaltyApplied: Boolean,
+                total: Number,
+            },
+            skills: {
+                technical: Number,
+                tools: Number,
+                soft: Number,
+                total: Number,
+            },
+            roleFit: Number,
+            education: Number,
+            location: Number,
+            other: Number,
+        },
+
         strengths: [String],
         gaps: [String],
         recommendations: [String],
@@ -21,6 +43,7 @@ const ResumeSchema = new mongoose.Schema({
         locked: { type: Boolean, default: false },
         analyzedAt: Date,
     },
+
 });
 
 
