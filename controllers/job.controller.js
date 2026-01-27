@@ -13,19 +13,70 @@ export const createJob = async (req, res) => {
       jobType,
       requirements,
       workType,
-      status,       // Active/Draft/Inactive
+      status,
       scheduleDate,
       closingDate,
     } = req.body;
 
-
     const company = req.company;
-    if (!company)
+    if (!company) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
 
-    // Required fields validation
-    if (!title || !description || !experience || !qualification || !location || !salary || !jobType || !requirements || !workType || !closingDate) {
-      return res.status(400).json({ success: false, message: "Missing required job fields" });
+    // Required fields
+    if (
+      !title ||
+      !description ||
+      !experience ||
+      !qualification ||
+      !location ||
+      !salary ||
+      !jobType ||
+      !workType ||
+      !requirements ||
+      !closingDate
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required job fields",
+      });
+    }
+
+    // Date validation
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const closing = new Date(closingDate);
+    if (closing <= today) {
+      return res.status(400).json({
+        success: false,
+        message: "Closing date must be after today",
+      });
+    }
+
+    if (status === "Scheduled") {
+      if (!scheduleDate) {
+        return res.status(400).json({
+          success: false,
+          message: "Schedule date is required for scheduled jobs",
+        });
+      }
+
+      const schedule = new Date(scheduleDate);
+
+      if (schedule <= today) {
+        return res.status(400).json({
+          success: false,
+          message: "Schedule date must be after today",
+        });
+      }
+
+      if (schedule >= closing) {
+        return res.status(400).json({
+          success: false,
+          message: "Schedule date must be before closing date",
+        });
+      }
     }
 
     const job = new Job({
@@ -36,13 +87,12 @@ export const createJob = async (req, res) => {
       location,
       salary,
       jobType,
-      requirements,
       workType,
+      requirements,
       status: status || "Active",
-      scheduleDate: scheduleDate || null,
+      scheduleDate: status === "Scheduled" ? scheduleDate : null,
       closingDate,
       postedBy: company._id,
-      companyId: company.companyId,
     });
 
     await job.save();
@@ -61,6 +111,7 @@ export const createJob = async (req, res) => {
     });
   }
 };
+
 
 export const getJobs = async (req, res) => {
   try {

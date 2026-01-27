@@ -183,9 +183,16 @@ export const analyzeCvs = async (req, res) => {
     res.setHeader("Content-Type", "application/x-ndjson");
     res.setHeader("Transfer-Encoding", "chunked");
 
+    // ✔️ create/update batch first
     await Batch.findOneAndUpdate(
       { batchId },
-      { name: batchName, jobId, resumes: [], updatedAt: new Date() },
+      {
+        name: batchName,
+        jobId,
+        resumes: [],
+        status: "processing",
+        updatedAt: new Date()
+      },
       { upsert: true }
     );
 
@@ -279,6 +286,7 @@ Return:
           tools: clamp(round(ai.skills?.tools || 0, 2), 0, 4),
           soft: clamp(round(ai.skills?.soft || 0, 2), 0, 3)
         };
+
         skills.total = round(
           skills.technical + skills.tools + skills.soft,
           2
@@ -290,7 +298,7 @@ Return:
         const other = clamp(round(ai.other || 0, 2), 0, 5);
 
         /* ===============================
-           DISTRIBUTED SCORES (OUT OF 100)
+           DISTRIBUTED SCORES
         ================================ */
 
         const distributed_scores = {
@@ -312,7 +320,6 @@ Return:
         const finalScore = Math.round(
           clamp(distributed_scores.total, 0, 100)
         );
-
 
         /* ===============================
            FINAL PAYLOAD
@@ -342,13 +349,16 @@ Return:
             gaps: ai.gaps || [],
             recommendations: ai.recommendations || [],
             experienceMatch: ai.experienceMatchSummary || "",
-            locked: false,
+            locked: true,
+            status: "completed",
             analyzedAt: new Date()
           }
         };
 
+        // ✔️ streaming output
         res.write(JSON.stringify(payload) + "\n");
 
+        // ✔️ store into batch immediately
         await Batch.updateOne(
           { batchId },
           { $push: { resumes: payload } }
@@ -357,16 +367,46 @@ Return:
         processed.add(cv.id);
 
       } catch (err) {
-        res.write(JSON.stringify({
-          cv: { id: cv.id, filename: cv.filename },
-          error: true,
-          message: err.message
-        }) + "\n");
+        const failedPayload = {
+          cv: {
+            id: cv.id,
+            filename: cv.filename,
+            uploadDate: cv.uploadDate
+          },
+          analysis: {
+            locked: true,
+            status: "failed",
+            error: err.message,
+            analyzedAt: new Date()
+          }
+        };
+
+        res.write(JSON.stringify(failedPayload) + "\n");
+
+        await Batch.updateOne(
+          { batchId },
+          { $push: { resumes: failedPayload } }
+        );
       }
     }
 
+    // ✔️ mark batch completed
+    await Batch.findOneAndUpdate(
+      { batchId },
+      { status: "completed", updatedAt: new Date() }
+    );
+
     const batch = await Batch.findOne({ batchId });
-    await createBulkApplicantsFromBatch(batch);
+
+    // ✔️ only completed resumes are sent to applicant table
+    const successfulResumes = batch.resumes.filter(
+      r => r.analysis?.status === "completed"
+    );
+
+    await createBulkApplicantsFromBatch({
+      ...batch.toObject(),
+      resumes: successfulResumes
+    });
 
     res.end();
     console.log(`✅ Analysis complete for batch: ${batchId}`);
