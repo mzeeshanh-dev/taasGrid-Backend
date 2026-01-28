@@ -183,19 +183,7 @@ export const analyzeCvs = async (req, res) => {
     res.setHeader("Content-Type", "application/x-ndjson");
     res.setHeader("Transfer-Encoding", "chunked");
 
-    // ✔️ create/update batch first
-    await Batch.findOneAndUpdate(
-      { batchId },
-      {
-        name: batchName,
-        jobId,
-        resumes: [],
-        status: "processing",
-        updatedAt: new Date()
-      },
-      { upsert: true }
-    );
-
+    let batchCreated = false; // flag to create batch only after first success
     const processed = new Set();
 
     for (const cv of cvs) {
@@ -206,9 +194,9 @@ export const analyzeCvs = async (req, res) => {
         const buffer = Buffer.from(cv.content, "base64");
         const structured = await structureCvData(buffer, cv.filename);
 
-        /* ===============================
-           EXPERIENCE — MONTH BASED ONLY
-        ================================ */
+        // ===============================
+        // EXPERIENCE — MONTH BASED ONLY
+        // ===============================
 
         const {
           professionalJob = 0,
@@ -230,9 +218,9 @@ export const analyzeCvs = async (req, res) => {
           2
         );
 
-        /* ===============================
-           AI — NON-EXPERIENCE ONLY
-        ================================ */
+        // ===============================
+        // AI — NON-EXPERIENCE ONLY
+        // ===============================
 
         const analyzePrompt = `
 You are an ATS scoring engine.
@@ -277,9 +265,9 @@ Return:
 
         const ai = JSON.parse(result.choices[0].message.content);
 
-        /* ===============================
-           NORMALIZE + CAP AI SCORES
-        ================================ */
+        // ===============================
+        // NORMALIZE + CAP AI SCORES
+        // ===============================
 
         const skills = {
           technical: clamp(round(ai.skills?.technical || 0, 2), 0, 18),
@@ -297,9 +285,9 @@ Return:
         const location = clamp(round(ai.location || 0, 2), 0, 5);
         const other = clamp(round(ai.other || 0, 2), 0, 5);
 
-        /* ===============================
-           DISTRIBUTED SCORES
-        ================================ */
+        // ===============================
+        // DISTRIBUTED SCORES
+        // ===============================
 
         const distributed_scores = {
           experience: experience.total,
@@ -321,9 +309,9 @@ Return:
           clamp(distributed_scores.total, 0, 100)
         );
 
-        /* ===============================
-           FINAL PAYLOAD
-        ================================ */
+        // ===============================
+        // FINAL PAYLOAD
+        // ===============================
 
         const payload = {
           cv: {
@@ -355,10 +343,26 @@ Return:
           }
         };
 
-        // ✔️ streaming output
+        // streaming output
         res.write(JSON.stringify(payload) + "\n");
 
-        // ✔️ store into batch immediately
+        // create batch if not yet created
+        if (!batchCreated) {
+          await Batch.findOneAndUpdate(
+            { batchId },
+            {
+              name: batchName,
+              jobId,
+              resumes: [],
+              status: "processing",
+              updatedAt: new Date()
+            },
+            { upsert: true }
+          );
+          batchCreated = true;
+        }
+
+        // store payload into batch
         await Batch.updateOne(
           { batchId },
           { $push: { resumes: payload } }
@@ -367,6 +371,7 @@ Return:
         processed.add(cv.id);
 
       } catch (err) {
+        // construct failed payload
         const failedPayload = {
           cv: {
             id: cv.id,
@@ -381,47 +386,59 @@ Return:
           }
         };
 
+        // write failed payload
         res.write(JSON.stringify(failedPayload) + "\n");
 
-        await Batch.updateOne(
-          { batchId },
-          { $push: { resumes: failedPayload } }
-        );
+        if (batchCreated) {
+          await Batch.updateOne(
+            { batchId },
+            { $push: { resumes: failedPayload } }
+          );
+        }
+
+        // ✅ throw API limit error so frontend sees it
+        if (err.message.includes("rate limit") || err.message.includes("429")) {
+          // make sure stream ends before throwing
+          res.end();
+          throw new Error("API limit reached for this analysis run");
+        }
       }
     }
 
-    // ✔️ mark batch completed
-    await Batch.findOneAndUpdate(
-      { batchId },
-      { status: "completed", updatedAt: new Date() }
-    );
+    // mark batch completed
+    if (batchCreated) {
+      await Batch.findOneAndUpdate(
+        { batchId },
+        { status: "completed", updatedAt: new Date() }
+      );
 
-    const batch = await Batch.findOne({ batchId });
+      const batch = await Batch.findOne({ batchId });
+      const successfulResumes = batch.resumes.filter(
+        r => r.analysis?.status === "completed"
+      );
 
-    // ✔️ only completed resumes are sent to applicant table
-    const successfulResumes = batch.resumes.filter(
-      r => r.analysis?.status === "completed"
-    );
-
-    await createBulkApplicantsFromBatch({
-      ...batch.toObject(),
-      resumes: successfulResumes
-    });
+      await createBulkApplicantsFromBatch({
+        ...batch.toObject(),
+        resumes: successfulResumes
+      });
+    }
 
     res.end();
     console.log(`✅ Analysis complete for batch: ${batchId}`);
 
   } catch (err) {
+    // ✅ frontend will receive API limit error here
     if (!res.headersSent) {
       res.status(500).json({
         message: "Analysis failed",
         error: err.message
       });
     } else {
-      res.end();
+      console.error("Stream ended with error:", err.message);
     }
   }
 };
+
 
 
 
