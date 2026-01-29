@@ -225,11 +225,14 @@ export const analyzeCvs = async (req, res) => {
         const analyzePrompt = `
 You are an ATS scoring engine.
 
-DO NOT calculate experience scores.
-DO NOT use years — months only.
-DO NOT invent numbers.
-
-Return ONLY JSON.
+STRICT RULES:
+- Use ONLY the candidate data provided.
+- DO NOT invent, assume, or hallucinate any skills, strengths, gaps, or recommendations.
+- DO NOT calculate experience (already handled separately).
+- If a field is missing, return 0 or an empty array [].
+- Matched skills MUST come from candidate.skills only.
+- Skill names must EXACTLY match the normalized values.
+- Do not rephrase or rename any skills.
 
 Job Criteria:
 ${JSON.stringify(criteria)}
@@ -237,7 +240,7 @@ ${JSON.stringify(criteria)}
 Candidate Data:
 ${JSON.stringify(structured)}
 
-Return:
+Return ONLY valid JSON in this format:
 {
   "skills": {
     "technical": 0,
@@ -255,6 +258,7 @@ Return:
   "experienceMatchSummary": ""
 }
 `;
+
 
         const result = await groq.chat.completions.create({
           model: "llama-3.3-70b-versatile",

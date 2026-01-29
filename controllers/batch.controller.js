@@ -123,3 +123,107 @@ export const getAllBatchCandidates = async (req, res) => {
 };
 
 
+// --------------------- Get unique skills for a job ---------------------
+
+
+// Map known skill variations to canonical names
+const normalizeMap = {
+    "react js": "React.js",
+    "reactjs": "React.js",
+    "node": "Node.js",
+    "node.js": "Node.js",
+    "express": "Express.js",
+    "express.js": "Express.js",
+    "rest api": "REST API",
+    "rest apis": "REST API",
+    "js": "JavaScript",
+    "javascript": "JavaScript",
+    "ts": "TypeScript",
+    "typescript": "TypeScript",
+    "vue js": "Vue.js",
+    "vue.js": "Vue.js",
+    "tailwindcss": "TailwindCSS",
+    "c#": "C#",
+    ".net core": ".NET Core",
+    ".net": ".NET",
+    "asp.net core": "ASP.NET Core",
+    "asp.net core mvc": "ASP.NET Core MVC",
+    "asp.net mvc core": "ASP.NET MVC Core",
+    "jwt": "JWT",
+    "socket.io": "Socket.IO",
+    "ci/cd": "CI/CD",
+    "ms sql server": "SQL Server",
+    "sql / postgresql": "SQL / PostgreSQL",
+    "web api development": "Web API Development",
+    "visual studio": "Visual Studio",
+    "vs code": "VS Code",
+    "abp boilerplate framework": "ABP Boilerplate Framework",
+    "asp.net boilerplate": "ASP.NET Boilerplate",
+    "signal r": "Signal R",
+    "smtp mail": "SMTP Mail",
+    "soap api": "SOAP API"
+};
+
+// Function to normalize skill names
+const normalizeSkill = (skill) => {
+    if (!skill) return null;
+    const key = skill.toLowerCase().trim();
+    if (normalizeMap[key]) return normalizeMap[key];
+
+    // Default: Title Case for unknown skills
+    return skill
+        .split(" ")
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+};
+
+// Controller: Get all unique skills for a job
+export const getJobSkills = async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        if (!jobId) return res.status(400).json({ message: "jobId required" });
+
+        const batches = await Batch.find({ jobId }).sort({ batchNumber: 1 });
+
+        const skillCategories = {
+            technical: new Set(),
+            tools: new Set(),
+            soft: new Set()
+        };
+
+        batches.forEach(batch => {
+            batch.resumes.forEach(resume => {
+                // Extract skills from resume's extractedData
+                const skills = resume.extractedData?.skills || {};
+
+                Object.keys(skillCategories).forEach(cat => {
+                    (skills[cat] || []).forEach(skill => {
+                        const normalized = normalizeSkill(skill);
+                        if (normalized) skillCategories[cat].add(normalized);
+                    });
+                });
+
+                // Also include matchedSkills for job relevance
+                (resume.analysis?.matchedSkills || []).forEach(skill => {
+                    const normalized = normalizeSkill(skill);
+                    if (normalized) skillCategories.technical.add(normalized);
+                });
+            });
+        });
+
+        // Convert sets to sorted arrays
+        const result = {};
+        Object.keys(skillCategories).forEach(cat => {
+            result[cat] = Array.from(skillCategories[cat]).sort((a, b) => a.localeCompare(b));
+        });
+
+        res.json({ success: true, skills: result });
+
+    } catch (err) {
+        console.error("Get job skills error:", err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+
+
