@@ -16,6 +16,8 @@ router.put("/resume", batchController.updateBatchResume);
 // Clear batches by job
 router.post("/clear", batchController.clearBatch);
 router.get("/candidates/all", batchController.getAllBatchCandidates);
+// Get unique skills for a job
+router.get("/skills/:jobId", batchController.getJobSkills);
 
 
 export default router;

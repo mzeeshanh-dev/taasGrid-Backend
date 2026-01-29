@@ -123,3 +123,57 @@ export const getAllBatchCandidates = async (req, res) => {
 };
 
 
+// Controller: Get all unique skills for a job
+export const getJobSkills = async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        if (!jobId) return res.status(400).json({ message: "jobId required" });
+
+        const batches = await Batch.find({ jobId }).sort({ batchNumber: 1 });
+
+        const skillCategories = {
+            technical: new Set(),
+            tools: new Set(),
+            soft: new Set()
+        };
+
+        batches.forEach(batch => {
+            batch.resumes.forEach(resume => {
+                // Extract skills from resume's extractedData
+                const skills = resume.extractedData?.skills || {};
+
+                Object.keys(skillCategories).forEach(cat => {
+                    (skills[cat] || []).forEach(skill => {
+                        const normalized = normalizeSkill(skill);
+                        if (normalized) skillCategories[cat].add(normalized);
+                    });
+                });
+
+                // Also include matchedSkills for job relevance
+                (resume.analysis?.matchedSkills || []).forEach(skill => {
+                    const normalized = normalizeSkill(skill);
+                    if (normalized) skillCategories.technical.add(normalized);
+                });
+            });
+        });
+
+        // Convert sets to sorted arrays
+        const result = {};
+        Object.keys(skillCategories).forEach(cat => {
+            result[cat] = Array.from(skillCategories[cat]).sort((a, b) => a.localeCompare(b));
+        });
+
+        res.json({ success: true, skills: result });
+
+    } catch (err) {
+        console.error("Get job skills error:", err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+
+
+
+
+
+
