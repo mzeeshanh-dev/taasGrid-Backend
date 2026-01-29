@@ -231,6 +231,14 @@ DO NOT invent numbers.
 
 Return ONLY JSON.
 
+Normalize all skills:
+- Convert variations of the same skill into a single standard form.
+  Examples: "c#", "C#", "c sharp" → "C#"
+            "js", "JavaScript", "javascript" → "JavaScript"
+            "reactjs", "React" → "React"
+
+Remove duplicate skills after normalization.
+
 Job Criteria:
 ${JSON.stringify(criteria)}
 

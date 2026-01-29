@@ -123,6 +123,49 @@ export const getAllBatchCandidates = async (req, res) => {
 };
 
 
+
+
+// utils/skills.js
+export const normalizeSkill = (skill) => {
+    if (!skill || typeof skill !== "string") return null;
+
+    let s = skill.trim().toLowerCase();
+
+    // Define normalization mapping
+    const mapping = {
+        "c#": "C#",
+        "c sharp": "C#",
+        "c++": "C++",
+        "cpp": "C++",
+        "js": "JavaScript",
+        "javascript": "JavaScript",
+        "ts": "TypeScript",
+        "typescript": "TypeScript",
+        "py": "Python",
+        "python": "Python",
+        "reactjs": "React",
+        "react": "React",
+        "nodejs": "Node.js",
+        "node": "Node.js",
+        "expressjs": "Express",
+        "express": "Express",
+        "html": "HTML",
+        "css": "CSS",
+        "sql": "SQL",
+        "mongodb": "MongoDB",
+        "docker": "Docker",
+        "kubernetes": "Kubernetes"
+        // add more as needed
+    };
+
+    // Map normalized value
+    if (mapping[s]) return mapping[s];
+
+    // Capitalize first letter for unknown skills
+    return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+
 // Controller: Get all unique skills for a job
 export const getJobSkills = async (req, res) => {
     try {
@@ -170,10 +213,4 @@ export const getJobSkills = async (req, res) => {
         res.status(500).json({ success: false, message: err.message });
     }
 };
-
-
-
-
-
-
 
