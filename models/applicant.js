@@ -32,7 +32,7 @@ const applicantSchema = new mongoose.Schema(
       },
     },
 
-    score: { type: Number, default: 0 },
+    score: { type: Number, default: null },
 
     source: {
       type: String,
