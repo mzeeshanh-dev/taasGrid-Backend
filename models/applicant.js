@@ -33,7 +33,10 @@ const applicantSchema = new mongoose.Schema(
     },
 
     score: { type: Number, default: null },
-
+    gpa: {
+      type: Number,
+      default: null,
+    },
     source: {
       type: String,
       enum: ["Portal", "Bulk"],

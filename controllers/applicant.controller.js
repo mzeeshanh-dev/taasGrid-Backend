@@ -296,46 +296,4 @@ export const createBulkApplicant = async (req, res) => {
   }
 };
 
-// ------------------ CREATE BULK APPLICANTS FROM BATCH ------------------
-// ------------------ CREATE BULK APPLICANTS FROM BATCH ------------------
-export const createBulkApplicantsFromBatch = async (batch) => {
-  if (!batch || !batch.jobId || !Array.isArray(batch.resumes)) return;
-
-  const jobId = batch.jobId;
-
-  for (const resume of batch.resumes) {
-    try {
-      const email =
-        resume.extractedData?.personalInfo?.email?.toLowerCase();
-
-      if (!email) continue;
-
-      await Applicant.create({
-        jobId,
-        source: "Bulk",
-        status: "Applied",
-        isApplied: true,
-        resumeUrl: resume.resumeUrl || resume.cv?.url,
-        extractedData: resume.extractedData,
-        userId: new mongoose.Types.ObjectId(), // dummy user
-        resumeModel: "BulkResume",
-        score: resume.analysis?.score || 0,
-        appliedAt: new Date(),
-      });
-
-    } catch (error) {
-      // 🔥 DUPLICATE → SILENT SKIP
-      if (error.code === 11000) {
-        continue;
-      }
-
-      // real error → log & continue (never crash batch)
-      console.error(
-        `Bulk applicant error for job ${jobId}:`,
-        error.message
-      );
-    }
-  }
-};
-
 

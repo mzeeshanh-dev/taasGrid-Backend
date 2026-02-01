@@ -5,11 +5,9 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import Batch from "../models/batch.js";
 import pdf from "pdf-parse-fixed";
-// import axios from "axios";
 import mongoose from "mongoose";
 import Job from "../models/job.js";
 import Applicant from "../models/applicant.js";
-import { createBulkApplicantsFromBatch } from "./applicant.controller.js";
 
 dotenv.config();
 
@@ -92,7 +90,7 @@ const structureCvData = async (buffer, filename) => {
     const cvText = data?.text?.slice(0, 6000) || "";
 
     const result = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: "llama-3.1-8b-instant",
       temperature: 0.1,
       max_tokens: 3000,
       response_format: { type: "json_object" },
@@ -198,8 +196,8 @@ export const uploadCvs = async (req, res) => {
 /* ===========================
    ANALYZE CVS
 =========================== */
-export const analyzeCvs = async (req, res) => {
 
+export const analyzeCvs = async (req, res) => {
   try {
     const { batchId, batchName, jobId } = req.body;
 
@@ -210,15 +208,13 @@ export const analyzeCvs = async (req, res) => {
     }
 
     const criteria = await getJobCriteriaById(jobId);
-
-
     const cvs = await storage.getCvs();
     if (!cvs.length) return res.end();
 
     res.setHeader("Content-Type", "application/x-ndjson");
     res.setHeader("Transfer-Encoding", "chunked");
 
-    let batchCreated = false; // flag to create batch only after first success
+    let batchCreated = false;
     const processed = new Set();
 
     for (const cv of cvs) {
@@ -230,9 +226,8 @@ export const analyzeCvs = async (req, res) => {
         const structured = await structureCvData(buffer, cv.filename);
 
         // ===============================
-        // EXPERIENCE — MONTH BASED ONLY
+        // EXPERIENCE — MONTH BASED ONLY (UNCHANGED)
         // ===============================
-
         const {
           professionalJob = 0,
           freelancing = 0,
@@ -254,9 +249,8 @@ export const analyzeCvs = async (req, res) => {
         );
 
         // ===============================
-        // AI — NON-EXPERIENCE ONLY
+        // AI — NON-EXPERIENCE ONLY (UNCHANGED)
         // ===============================
-
         const analyzePrompt = `
 You are an ATS scoring engine.
 
@@ -309,9 +303,8 @@ Return:
         const ai = JSON.parse(result.choices[0].message.content);
 
         // ===============================
-        // NORMALIZE + CAP AI SCORES
+        // NORMALIZE + CAP AI SCORES (UNCHANGED)
         // ===============================
-
         const skills = {
           technical: clamp(round(ai.skills?.technical || 0, 2), 0, 18),
           tools: clamp(round(ai.skills?.tools || 0, 2), 0, 4),
@@ -329,9 +322,8 @@ Return:
         const other = clamp(round(ai.other || 0, 2), 0, 5);
 
         // ===============================
-        // DISTRIBUTED SCORES
+        // DISTRIBUTED SCORES (UNCHANGED)
         // ===============================
-
         const distributed_scores = {
           experience: experience.total,
           skills: skills.total,
@@ -353,9 +345,8 @@ Return:
         );
 
         // ===============================
-        // FINAL PAYLOAD
+        // FINAL PAYLOAD (UNCHANGED)
         // ===============================
-
         const payload = {
           cv: {
             id: cv.id,
@@ -411,6 +402,35 @@ Return:
           { $push: { resumes: payload } }
         );
 
+        // ✅✅✅ APPLICANT CREATION (createBulkApplicantsFromBatch logic moved here)
+        try {
+          const email = structured?.personalInfo?.email?.toLowerCase();
+
+          await Applicant.create({
+            jobId,
+            source: "Bulk",
+            status: "Applied",
+            isApplied: true,
+            resumeUrl: cv.url || null,
+            extractedData: structured,
+            gpa: structured?.education?.gpa ? Number(structured.education.gpa) : null,
+            userId: new mongoose.Types.ObjectId(),
+            resumeModel: "BulkResume",
+            score: finalScore,
+            appliedAt: new Date(),
+          });
+
+
+        } catch (error) {
+          // 🔥 DUPLICATE → SILENT SKIP (same as original function)
+          if (error.code === 11000) {
+            // silently continue - duplicate email for this job
+          } else {
+            // real error → log & continue (never crash batch)
+            console.error(`Bulk applicant error for job ${jobId}:`, error.message);
+          }
+        }
+
         processed.add(cv.id);
 
       } catch (err) {
@@ -439,38 +459,27 @@ Return:
           );
         }
 
-        // ✅ throw API limit error so frontend sees it
+        // throw API limit error so frontend sees it
         if (err.message.includes("rate limit") || err.message.includes("429")) {
-          // make sure stream ends before throwing
           res.end();
           throw new Error("API limit reached for this analysis run");
         }
       }
     }
 
-    // mark batch completed
+    // mark batch completed (createBulkApplicantsFromBatch removed from here)
     if (batchCreated) {
       await Batch.findOneAndUpdate(
         { batchId },
         { status: "completed", updatedAt: new Date() }
       );
-
-      const batch = await Batch.findOne({ batchId });
-      const successfulResumes = batch.resumes.filter(
-        r => r.analysis?.status === "completed"
-      );
-
-      await createBulkApplicantsFromBatch({
-        ...batch.toObject(),
-        resumes: successfulResumes
-      });
     }
 
     res.end();
     console.log(`✅ Analysis complete for batch: ${batchId}`);
 
   } catch (err) {
-    // ✅ frontend will receive API limit error here
+    // frontend will receive API limit error here
     if (!res.headersSent) {
       res.status(500).json({
         message: "Analysis failed",
@@ -481,7 +490,6 @@ Return:
     }
   }
 };
-
 
 
 
