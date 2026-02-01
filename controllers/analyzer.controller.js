@@ -406,6 +406,54 @@ Return:
         try {
           const email = structured?.personalInfo?.email?.toLowerCase();
 
+          // ===============================
+          // GPA EXTRACTION (FRONTEND SAFE)
+          // ===============================
+          let finalGpa = null;
+          const eduData = structured?.education;
+
+          // Normalize education into array
+          const educationArray = Array.isArray(eduData)
+            ? eduData
+            : eduData && typeof eduData === "object"
+              ? [eduData]
+              : [];
+
+          // Prefer latest education (assume latest is last)
+          for (let i = educationArray.length - 1; i >= 0; i--) {
+            const edu = educationArray[i];
+            const rawGpa = edu?.gpa ?? edu?.cgpa;
+
+            if (rawGpa !== undefined && rawGpa !== null && rawGpa !== "") {
+              const raw = String(rawGpa).toLowerCase().trim();
+
+              // Extract numbers like "3.5", "8.2", "3.75"
+              const match = raw.match(/(\d+(\.\d+)?)/);
+              if (!match) continue;
+
+              let value = parseFloat(match[1]);
+              if (isNaN(value)) continue;
+
+              // Detect scale
+              const isOutOf10 =
+                raw.includes("/10") ||
+                raw.includes("out of 10") ||
+                value > 4;
+
+              // Normalize to 4.0 scale
+              if (isOutOf10) {
+                value = (value / 10) * 4;
+              }
+
+              // Final validation (frontend compatible)
+              if (value >= 0 && value <= 4) {
+                finalGpa = Number(value.toFixed(2));
+                break;
+              }
+            }
+          }
+
+
           await Applicant.create({
             jobId,
             source: "Bulk",
@@ -413,7 +461,7 @@ Return:
             isApplied: true,
             resumeUrl: cv.url || null,
             extractedData: structured,
-            gpa: structured?.education?.gpa ? Number(structured.education.gpa) : null,
+            gpa: finalGpa,
             userId: new mongoose.Types.ObjectId(),
             resumeModel: "BulkResume",
             score: finalScore,
