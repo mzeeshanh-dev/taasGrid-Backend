@@ -9,7 +9,6 @@ import pdf from "pdf-parse-fixed";
 import mongoose from "mongoose";
 import Job from "../models/job.js";
 import Applicant from "../models/applicant.js";
-import { createBulkApplicantsFromBatch } from "./applicant.controller.js";
 
 dotenv.config();
 
@@ -199,7 +198,6 @@ export const uploadCvs = async (req, res) => {
    ANALYZE CVS
 =========================== */
 export const analyzeCvs = async (req, res) => {
-
   try {
     const { batchId, batchName, jobId } = req.body;
 
@@ -210,16 +208,20 @@ export const analyzeCvs = async (req, res) => {
     }
 
     const criteria = await getJobCriteriaById(jobId);
-
-
     const cvs = await storage.getCvs();
-    if (!cvs.length) return res.end();
+
+    if (!cvs.length) {
+      return res.status(400).json({ message: "No CVs found in storage" });
+    }
 
     res.setHeader("Content-Type", "application/x-ndjson");
     res.setHeader("Transfer-Encoding", "chunked");
 
-    let batchCreated = false; // flag to create batch only after first success
+    let batchCreated = false;
     const processed = new Set();
+    let successCount = 0;
+    let failCount = 0;
+    let duplicateCount = 0;
 
     for (const cv of cvs) {
       if (processed.has(cv.id)) continue;
@@ -232,7 +234,6 @@ export const analyzeCvs = async (req, res) => {
         // ===============================
         // EXPERIENCE — MONTH BASED ONLY
         // ===============================
-
         const {
           professionalJob = 0,
           freelancing = 0,
@@ -247,16 +248,13 @@ export const analyzeCvs = async (req, res) => {
         };
 
         experience.total = round(
-          experience.professional +
-          experience.freelancing +
-          experience.internship,
+          experience.professional + experience.freelancing + experience.internship,
           2
         );
 
         // ===============================
         // AI — NON-EXPERIENCE ONLY
         // ===============================
-
         const analyzePrompt = `
 You are an ATS scoring engine.
 
@@ -311,17 +309,13 @@ Return:
         // ===============================
         // NORMALIZE + CAP AI SCORES
         // ===============================
-
         const skills = {
           technical: clamp(round(ai.skills?.technical || 0, 2), 0, 18),
           tools: clamp(round(ai.skills?.tools || 0, 2), 0, 4),
           soft: clamp(round(ai.skills?.soft || 0, 2), 0, 3)
         };
 
-        skills.total = round(
-          skills.technical + skills.tools + skills.soft,
-          2
-        );
+        skills.total = round(skills.technical + skills.tools + skills.soft, 2);
 
         const roleFit = clamp(round(ai.roleFit || 0, 2), 0, 10);
         const education = clamp(round(ai.education || 0, 2), 0, 10);
@@ -331,7 +325,6 @@ Return:
         // ===============================
         // DISTRIBUTED SCORES
         // ===============================
-
         const distributed_scores = {
           experience: experience.total,
           skills: skills.total,
@@ -348,14 +341,11 @@ Return:
           2
         );
 
-        const finalScore = Math.round(
-          clamp(distributed_scores.total, 0, 100)
-        );
+        const finalScore = Math.round(clamp(distributed_scores.total, 0, 100));
 
         // ===============================
         // FINAL PAYLOAD
         // ===============================
-
         const payload = {
           cv: {
             id: cv.id,
@@ -411,9 +401,43 @@ Return:
           { $push: { resumes: payload } }
         );
 
+        // ===============================
+        // INSTANT APPLICANT CREATION (BULK)
+        // ===============================
+        try {
+          const email = structured?.personalInfo?.email?.toLowerCase().trim();
+
+          if (email) {
+            await Applicant.create({
+              jobId,
+              source: "Bulk",
+              status: "Applied",
+              isApplied: true,
+              resumeUrl: cv.filename || "",
+              extractedData: structured,
+              score: finalScore,
+              appliedAt: new Date()
+              // userId not required for Bulk (schema handles this)
+            });
+            successCount++;
+            console.log(`✅ Applicant created: ${email} (Score: ${finalScore}%)`);
+          } else {
+            console.log(`⚠️ No email found for ${cv.filename}, skipping applicant creation`);
+          }
+        } catch (err) {
+          if (err.code === 11000) {
+            duplicateCount++;
+            console.log(`⚠️ Duplicate skipped: ${structured?.personalInfo?.email} already exists for job ${jobId}`);
+          } else {
+            console.error(`❌ Error creating applicant for ${cv.filename}:`, err.message);
+          }
+        }
+
         processed.add(cv.id);
 
       } catch (err) {
+        failCount++;
+
         // construct failed payload
         const failedPayload = {
           cv: {
@@ -439,9 +463,8 @@ Return:
           );
         }
 
-        // ✅ throw API limit error so frontend sees it
+        // throw API limit error so frontend sees it
         if (err.message.includes("rate limit") || err.message.includes("429")) {
-          // make sure stream ends before throwing
           res.end();
           throw new Error("API limit reached for this analysis run");
         }
@@ -454,23 +477,13 @@ Return:
         { batchId },
         { status: "completed", updatedAt: new Date() }
       );
-
-      const batch = await Batch.findOne({ batchId });
-      const successfulResumes = batch.resumes.filter(
-        r => r.analysis?.status === "completed"
-      );
-
-      await createBulkApplicantsFromBatch({
-        ...batch.toObject(),
-        resumes: successfulResumes
-      });
     }
 
     res.end();
-    console.log(`✅ Analysis complete for batch: ${batchId}`);
+    console.log(`✅ Analysis complete for batch: ${batchId} | Success: ${successCount}, Failed: ${failCount}, Duplicates: ${duplicateCount}`);
 
   } catch (err) {
-    // ✅ frontend will receive API limit error here
+    // frontend will receive API limit error here
     if (!res.headersSent) {
       res.status(500).json({
         message: "Analysis failed",
@@ -481,7 +494,6 @@ Return:
     }
   }
 };
-
 
 
 
