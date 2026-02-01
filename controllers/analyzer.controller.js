@@ -5,7 +5,9 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import Batch from "../models/batch.js";
 import pdf from "pdf-parse-fixed";
-import axios from "axios";
+// import axios from "axios";
+import mongoose from "mongoose";
+import Job from "../models/job.js";
 import Applicant from "../models/applicant.js";
 import { createBulkApplicantsFromBatch } from "./applicant.controller.js";
 
@@ -14,7 +16,7 @@ dotenv.config();
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 const MIN_REQUEST_DELAY = 500;
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const apiKey = process.env.GROQ_API_KEY;
 
 if (!apiKey) {
@@ -25,19 +27,48 @@ const groq = new Groq({ apiKey: apiKey || "" });
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const getJobCriteriaById = async (jobId) => {
+  if (!jobId) throw new Error("jobId is required");
+
+  const query = mongoose.Types.ObjectId.isValid(jobId)
+    ? { $or: [{ _id: jobId }, { jobId }] }
+    : { jobId };
+
+  const job = await Job.findOne(query)
+    .populate("postedBy", "companyName companyId");
+
+  if (!job) throw new Error("Job not found");
+
+  return {
+    companyName: job.postedBy?.companyName || "N/A",
+    companyId: job.postedBy?.companyId || null,
+    description: job.description,
+    requirements: job.requirements || [],
+    experience: job.experience,
+    qualification: job.qualification,
+    location: job.location,
+    jobType: job.jobType,
+    workType: job.workType
+  };
+};
+
+
 /* ===========================
    CV STRUCTURE PARSER
 =========================== */
 const structureCvData = async (buffer, filename) => {
   const prompt = `You are a professional CV parser. Extract data from the CV and return a VALID JSON object.
   
-  CRITICAL INSTRUCTIONS for 'personalInfo':
-  You must include these specific keys for the experience chart:
-  - "professionalJob": Total number of months in Corporate/Full-time roles.
-  - "internship": Total number of months in Internship roles.
-  - "freelancing": Total number of months in Freelance/Contract roles.
-  
-  Calculation Rule: If a role is "Aug 2024 - Present" and today is Jan 2026, that is 17 months.
+
+  CRITICAL INSTRUCTIONS:
+1. If any field (name, email, phone, location, education, experience, skills, etc.) is missing or cannot be extracted, DO NOT make up or hallucinate values. Instead, use "Not specified" for strings, 0 for numbers, and empty arrays for lists.
+2. For 'personalInfo', include these keys for experience:
+   - "professionalJob": Total months in Corporate/Full-time roles
+   - "internship": Total months in Internship roles
+   - "freelancing": Total months in Freelance/Contract roles
+3. Experience Calculation Rule: If a role is "Aug 2024 - Present" and today is Jan 2026, that is 17 months.
+4. Normalize all text: remove extra spaces, trim, and standardize capitalization where appropriate.
+5. Return ONLY JSON and follow the exact structure below:
   
   Return format:
   {
@@ -168,14 +199,18 @@ export const uploadCvs = async (req, res) => {
    ANALYZE CVS
 =========================== */
 export const analyzeCvs = async (req, res) => {
+
   try {
-    const { batchId, batchName, criteria, jobId } = req.body;
+    const { batchId, batchName, jobId } = req.body;
 
     if (!batchId || !batchName || !jobId) {
       return res.status(400).json({
         message: "batchId, batchName and jobId required"
       });
     }
+
+    const criteria = await getJobCriteriaById(jobId);
+
 
     const cvs = await storage.getCvs();
     if (!cvs.length) return res.end();
@@ -188,7 +223,7 @@ export const analyzeCvs = async (req, res) => {
 
     for (const cv of cvs) {
       if (processed.has(cv.id)) continue;
-      if (processed.size > 0) await delay(300);
+      if (processed.size > 0) await delay(MIN_REQUEST_DELAY);
 
       try {
         const buffer = Buffer.from(cv.content, "base64");
@@ -510,12 +545,8 @@ export const analyzePortalApplicants = async (req, res) => {
       });
     }
 
-    const criteriaRes = await axios.get(
-      `http://localhost:3001/api/jobs/criteria/${jobId}`
-    );
+    const criteria = await getJobCriteriaById(jobId);
 
-    const criteria = criteriaRes.data.criteria || criteriaRes.data || {};
-    console.log("Criteria:", criteria);
 
     const portalApplicants = await Applicant.find({
       jobId,

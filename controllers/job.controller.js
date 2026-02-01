@@ -244,7 +244,7 @@ export const getJobCriteria = async (req, res) => {
     const criteria = {
       companyName: job.postedBy?.companyName || "N/A",
       companyId: job.postedBy?.companyId || null,
-
+      description: job.description,
       requirements: job.requirements || [],
       experience: job.experience,
       qualification: job.qualification,
