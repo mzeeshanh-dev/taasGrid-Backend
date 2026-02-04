@@ -35,6 +35,8 @@ const applicantSchema = new mongoose.Schema(
     score: { type: Number, default: null },
     gpa: {
       type: Number,
+      min: 0,
+      max: 4,
       default: null,
     },
     source: {

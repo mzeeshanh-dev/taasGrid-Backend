@@ -409,49 +409,99 @@ Return:
           // ===============================
           // GPA EXTRACTION (FRONTEND SAFE)
           // ===============================
+          // ===============================
+          // GPA EXTRACTION & NORMALIZATION (ROBUST)
+          // - Normalizes common patterns to 4.0 scale
+          // - Examples supported: "3.5", "3.5/4", "8.5/10", "3.5 out of 4", "85%"
+          // - Picks the HIGHEST valid normalized GPA from all education entries
+          // ===============================
           let finalGpa = null;
-          const eduData = structured?.education;
 
-          // Normalize education into array
+          const eduData = structured?.education;
           const educationArray = Array.isArray(eduData)
             ? eduData
             : eduData && typeof eduData === "object"
               ? [eduData]
               : [];
 
-          // Prefer latest education (assume latest is last)
-          for (let i = educationArray.length - 1; i >= 0; i--) {
-            const edu = educationArray[i];
+          /**
+           * Normalize a raw GPA-like string/number to 4.0 scale.
+           * Returns Number (0..4) or null if cannot parse.
+           */
+          function normalizeGpaTo4(raw) {
+            if (raw === null || raw === undefined) return null;
+            const s = String(raw).toLowerCase().trim().replace(",", "."); // normalize decimals
+
+            // 1) explicit formats: "val / scale" or "val out of scale"
+            const denomMatch = s.match(/(\d+(\.\d+)?)\s*(?:\/|out of|of)\s*(\d+(\.\d+)?)/);
+            if (denomMatch) {
+              const val = parseFloat(denomMatch[1]);
+              const scale = parseFloat(denomMatch[3]);
+              if (!isNaN(val) && !isNaN(scale) && scale > 0) {
+                const normalized = (val / scale) * 4;
+                if (!Number.isNaN(normalized)) return Number(normalized.toFixed(2));
+              }
+              return null;
+            }
+
+            // 2) percentage like "85%" -> convert to /100 -> /4
+            const percentMatch = s.match(/(\d+(\.\d+)?)\s*%/);
+            if (percentMatch) {
+              const val = parseFloat(percentMatch[1]);
+              if (!isNaN(val)) {
+                const normalized = (val / 100) * 4;
+                return Number(normalized.toFixed(2));
+              }
+              return null;
+            }
+
+            // 3) single number: decide scale by heuristics
+            const numMatch = s.match(/(\d+(\.\d+)?)/);
+            if (!numMatch) return null;
+
+            let val = parseFloat(numMatch[1]);
+            if (Number.isNaN(val)) return null;
+
+            // If value already within 0..4 => assume it's already 4.0-scale
+            if (val >= 0 && val <= 4) {
+              return Number(val.toFixed(2));
+            }
+
+            // If 4 < val <= 10 => very likely 10-scale (normalize to 4)
+            if (val > 4 && val <= 10) {
+              const normalized = (val / 10) * 4;
+              return Number(normalized.toFixed(2));
+            }
+
+            // If val > 10 and <=100 => probably percentage (85 -> treat as 85%)
+            if (val > 10 && val <= 100) {
+              const normalized = (val / 100) * 4;
+              return Number(normalized.toFixed(2));
+            }
+
+            // Anything else -> can't normalize
+            return null;
+          }
+
+          // collect normalized GPAs from education entries
+          const normalizedGpas = [];
+
+          for (const edu of educationArray) {
             const rawGpa = edu?.gpa ?? edu?.cgpa;
+            if (rawGpa === undefined || rawGpa === null || String(rawGpa).trim() === "") continue;
 
-            if (rawGpa !== undefined && rawGpa !== null && rawGpa !== "") {
-              const raw = String(rawGpa).toLowerCase().trim();
-
-              // Extract numbers like "3.5", "8.2", "3.75"
-              const match = raw.match(/(\d+(\.\d+)?)/);
-              if (!match) continue;
-
-              let value = parseFloat(match[1]);
-              if (isNaN(value)) continue;
-
-              // Detect scale
-              const isOutOf10 =
-                raw.includes("/10") ||
-                raw.includes("out of 10") ||
-                value > 4;
-
-              // Normalize to 4.0 scale
-              if (isOutOf10) {
-                value = (value / 10) * 4;
-              }
-
-              // Final validation (frontend compatible)
-              if (value >= 0 && value <= 4) {
-                finalGpa = Number(value.toFixed(2));
-                break;
-              }
+            const norm = normalizeGpaTo4(rawGpa);
+            if (norm !== null && !Number.isNaN(norm) && norm >= 0 && norm <= 4) {
+              normalizedGpas.push(norm);
             }
           }
+
+
+          if (normalizedGpas.length > 0) {
+            finalGpa = Number(Math.max(...normalizedGpas).toFixed(2));
+          }
+
+
 
 
           await Applicant.create({
