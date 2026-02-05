@@ -25,6 +25,7 @@
     "mongoose": "^8.19.1",
     "multer": "^2.0.2",
     "nodemon": "^3.1.10",
+    "p-limit": "^7.3.0",
     "pdf-parse-fixed": "^1.1.1",
     "streamifier": "^0.1.1"
   }

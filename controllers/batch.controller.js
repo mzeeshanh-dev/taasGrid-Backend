@@ -235,12 +235,18 @@ export const uploadResumesToCloud = async (req, res) => {
             bn = lastBatch ? lastBatch.batchNumber + 1 : 1;
         }
 
-        // Fetch existing batch or create new
+        // Fetch existing batch
         let batch = await Batch.findOne({ jobId, batchNumber: bn, isDeleted: false });
         if (!batch) {
+            // Generate unique batchId per job
+            const lastJobBatch = await Batch.find({ jobId }).sort({ batchNumber: -1 }).limit(1);
+            const lastIdNum = lastJobBatch.length ? parseInt(lastJobBatch[0].batchId.split("-")[1]) : 0;
+            const newBatchId = `BATCH-${jobId}-${(lastIdNum + 1).toString().padStart(4, "0")}`;
+
             batch = new Batch({
                 jobId,
                 batchNumber: bn,
+                batchId: newBatchId,
                 name: `Batch-${String(bn).padStart(2, "0")}`,
                 resumes: [],
             });
@@ -248,7 +254,7 @@ export const uploadResumesToCloud = async (req, res) => {
 
         const newFileNames = files.map(f => f.originalname);
 
-        // 1️⃣ Remove resumes from DB & Cloudinary that are NOT in the new upload
+        // 1️⃣ Remove old resumes not in new upload
         const toRemove = batch.resumes.filter(r => !newFileNames.includes(r.originalName));
         await Promise.all(
             toRemove.map(async (r) => {
@@ -257,19 +263,15 @@ export const uploadResumesToCloud = async (req, res) => {
         );
         batch.resumes = batch.resumes.filter(r => newFileNames.includes(r.originalName));
 
-        // 2️⃣ Handle uploads: overwrite existing or add new
+        // 2️⃣ Upload / overwrite
         for (const file of files) {
             const existingIndex = batch.resumes.findIndex(r => r.originalName === file.originalname);
 
-            // If exists, delete old Cloudinary file first
             if (existingIndex >= 0) {
                 const oldResume = batch.resumes[existingIndex];
-                if (oldResume.resumePublicId) {
-                    await deleteFile(oldResume.resumePublicId, oldResume.resourceType || "raw");
-                }
+                if (oldResume.resumePublicId) await deleteFile(oldResume.resumePublicId, oldResume.resourceType || "raw");
             }
 
-            // Upload file to Cloudinary
             const uploaded = await uploadFile(file.buffer, file.originalname, "resumes");
 
             const resumeData = {
@@ -288,9 +290,9 @@ export const uploadResumesToCloud = async (req, res) => {
             };
 
             if (existingIndex >= 0) {
-                batch.resumes[existingIndex] = resumeData; // overwrite existing
+                batch.resumes[existingIndex] = resumeData;
             } else {
-                batch.resumes.push(resumeData); // add new
+                batch.resumes.push(resumeData);
             }
         }
 
