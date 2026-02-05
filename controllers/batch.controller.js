@@ -1,4 +1,6 @@
 import Batch from "../models/batch.js";
+import { uploadFile, deleteFile } from "../utils/cloudinaryService.js";
+import crypto from 'crypto'
 
 // --------------------- Upload / Add or Update Resumes ---------------------
 export const uploadBatchResumes = async (req, res) => {
@@ -214,3 +216,141 @@ export const getJobSkills = async (req, res) => {
     }
 };
 
+
+export const uploadResumesToCloud = async (req, res) => {
+    try {
+        const { jobId, batchNumber } = req.body;
+        const files = req.files;
+
+        if (!jobId) return res.status(400).json({ message: "jobId required" });
+        if (!files || files.length === 0) return res.status(400).json({ message: "No files uploaded" });
+
+        // Determine batchNumber
+        let bn;
+        if (batchNumber) {
+            bn = Number(batchNumber);
+            if (isNaN(bn)) return res.status(400).json({ message: "Invalid batchNumber" });
+        } else {
+            const lastBatch = await Batch.findOne({ jobId }).sort({ batchNumber: -1 });
+            bn = lastBatch ? lastBatch.batchNumber + 1 : 1;
+        }
+
+        // Fetch existing batch or create new
+        let batch = await Batch.findOne({ jobId, batchNumber: bn, isDeleted: false });
+        if (!batch) {
+            batch = new Batch({
+                jobId,
+                batchNumber: bn,
+                name: `Batch-${String(bn).padStart(2, "0")}`,
+                resumes: [],
+            });
+        }
+
+        const newFileNames = files.map(f => f.originalname);
+
+        // 1️⃣ Remove resumes from DB & Cloudinary that are NOT in the new upload
+        const toRemove = batch.resumes.filter(r => !newFileNames.includes(r.originalName));
+        await Promise.all(
+            toRemove.map(async (r) => {
+                if (r.resumePublicId) await deleteFile(r.resumePublicId, r.resourceType || "raw");
+            })
+        );
+        batch.resumes = batch.resumes.filter(r => newFileNames.includes(r.originalName));
+
+        // 2️⃣ Handle uploads: overwrite existing or add new
+        for (const file of files) {
+            const existingIndex = batch.resumes.findIndex(r => r.originalName === file.originalname);
+
+            // If exists, delete old Cloudinary file first
+            if (existingIndex >= 0) {
+                const oldResume = batch.resumes[existingIndex];
+                if (oldResume.resumePublicId) {
+                    await deleteFile(oldResume.resumePublicId, oldResume.resourceType || "raw");
+                }
+            }
+
+            // Upload file to Cloudinary
+            const uploaded = await uploadFile(file.buffer, file.originalname, "resumes");
+
+            const resumeData = {
+                cv: {
+                    id: existingIndex >= 0 ? batch.resumes[existingIndex].cv.id : crypto.randomUUID(),
+                    filename: file.originalname,
+                    uploadDate: new Date(),
+                },
+                resumeUrl: uploaded.url,
+                resumePublicId: uploaded.publicId,
+                originalName: uploaded.originalName,
+                resourceType: uploaded.resourceType,
+                size: file.size,
+                uploadedAt: new Date(),
+                isAnalyzed: false,
+            };
+
+            if (existingIndex >= 0) {
+                batch.resumes[existingIndex] = resumeData; // overwrite existing
+            } else {
+                batch.resumes.push(resumeData); // add new
+            }
+        }
+
+        await batch.save();
+
+        res.json({
+            success: true,
+            batchId: batch.batchId,
+            batchNumber: batch.batchNumber,
+            totalResumes: batch.resumes.length,
+        });
+
+    } catch (err) {
+        console.error("Upload error:", err);
+        res.status(500).json({ message: err.message });
+    }
+};
+
+
+
+
+/* ================= Remove CV ================= */
+export const removeResumeFromBatch = async (req, res) => {
+    try {
+        const { batchId, cvId } = req.body;
+
+        if (!batchId || !cvId) {
+            return res.status(400).json({ message: "batchId & cvId required" });
+        }
+
+        const batch = await Batch.findOne({ batchId, isDeleted: false });
+        if (!batch) {
+            return res.status(404).json({ message: "Batch not found" });
+        }
+
+        const index = batch.resumes.findIndex(r => r.cv.id === cvId);
+        if (index === -1) {
+            return res.status(404).json({ message: "Resume not found" });
+        }
+
+        const resume = batch.resumes[index];
+
+        // Delete from Cloudinary (your logic handles image/raw fallback)
+        if (resume.resumePublicId) {
+            await deleteFile(
+                resume.resumePublicId,
+                resume.resourceType || "raw"
+            );
+        }
+
+        batch.resumes.splice(index, 1);
+        await batch.save();
+
+        res.json({
+            success: true,
+            message: "Resume deleted from DB & Cloudinary",
+        });
+
+    } catch (err) {
+        console.error("Remove error:", err);
+        res.status(500).json({ message: err.message });
+    }
+};

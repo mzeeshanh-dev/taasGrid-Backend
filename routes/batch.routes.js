@@ -1,4 +1,5 @@
 import express from "express";
+import multer from "multer";
 import * as batchController from "../controllers/batch.controller.js";
 
 const router = express.Router();
@@ -13,11 +14,31 @@ router.get("/:jobId", batchController.getBatchResumes);
 // Update analysis of a resume
 router.put("/resume", batchController.updateBatchResume);
 
-// Clear batches by job
+
 router.post("/clear", batchController.clearBatch);
 router.get("/candidates/all", batchController.getAllBatchCandidates);
 // Get unique skills for a job
 router.get("/skills/:jobId", batchController.getJobSkills);
+
+
+
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+router.post(
+    "/upload-cvs",
+    upload.array("files"),
+    batchController.uploadResumesToCloud
+);
+
+
+
+router.delete("/remove-cv", batchController.removeResumeFromBatch);
+
+
+
 
 
 export default router;
