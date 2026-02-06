@@ -65,9 +65,11 @@ const BatchSchema = new mongoose.Schema(
 
         // NEW batch-level processing states
         isIdle: { type: Boolean, default: true },
+        isUploaded: { type: Boolean, default: true },
         isProcessing: { type: Boolean, default: false },
         isCompleted: { type: Boolean, default: false },
         isFailed: { type: Boolean, default: false },
+
 
         resumes: [ResumeSchema],
         isDeleted: { type: Boolean, default: false }, // Soft delete
@@ -78,13 +80,13 @@ const BatchSchema = new mongoose.Schema(
 );
 
 /* ==================== Auto-generate batchId & batchNumber ==================== */
-BatchSchema.pre("save", async function (next) {
-    if (!this.batchId) {
-        const count = await mongoose.models.Batch.countDocuments({ jobId: this.jobId });
-        this.batchId = `BATCH${(count + 1).toString().padStart(4, "0")}`;
-        this.batchNumber = count + 1;
-    }
-    next();
-});
+// BatchSchema.pre("save", async function (next) {
+//     if (!this.batchId) {
+//         const count = await mongoose.models.Batch.countDocuments({ jobId: this.jobId });
+//         this.batchId = `BATCH${(count + 1).toString().padStart(4, "0")}`;
+//         this.batchNumber = count + 1;
+//     }
+//     next();
+// });
 
 export default mongoose.model("Batch", BatchSchema);

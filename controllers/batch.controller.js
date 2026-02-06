@@ -356,3 +356,53 @@ export const removeResumeFromBatch = async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 };
+
+
+// --------------------- Update Batch Status ---------------------
+export const updateBatchStatus = async (req, res) => {
+    try {
+        const { batchId } = req.params;
+        const {
+            isIdle,
+            isProcessing,
+            isCompleted,
+            isFailed,
+            isUploaded
+        } = req.body;
+
+        if (!batchId) {
+            return res.status(400).json({ message: "batchId required" });
+        }
+
+        const batch = await Batch.findOne({ batchId, isDeleted: false });
+        if (!batch) {
+            return res.status(404).json({ message: "Batch not found" });
+        }
+
+        // 🔹 Only update fields that are explicitly provided
+        if (typeof isIdle === "boolean") batch.isIdle = isIdle;
+        if (typeof isProcessing === "boolean") batch.isProcessing = isProcessing;
+        if (typeof isCompleted === "boolean") batch.isCompleted = isCompleted;
+        if (typeof isFailed === "boolean") batch.isFailed = isFailed;
+        if (typeof isUploaded === "boolean") batch.isUploaded = isUploaded;
+
+        await batch.save();
+
+        res.json({
+            success: true,
+            message: "Batch status updated",
+            batchStatus: {
+                batchId: batch.batchId,
+                isIdle: batch.isIdle,
+                isProcessing: batch.isProcessing,
+                isCompleted: batch.isCompleted,
+                isFailed: batch.isFailed,
+                isUploaded: batch.isUploaded,
+            },
+        });
+
+    } catch (err) {
+        console.error("Update batch status error:", err);
+        res.status(500).json({ message: err.message });
+    }
+};

@@ -38,6 +38,11 @@ router.post(
 router.delete("/remove-cv", batchController.removeResumeFromBatch);
 
 
+// Update batch processing status
+router.patch(
+    "/status/:batchId",
+    batchController.updateBatchStatus
+);
 
 
 
