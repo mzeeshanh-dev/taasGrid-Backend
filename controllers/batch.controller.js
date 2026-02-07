@@ -228,7 +228,6 @@ export const uploadResumesToCloud = async (req, res) => {
 
         /* ---------------- Determine Batch Number ---------------- */
         let bn;
-
         if (batchNumber) {
             bn = Number(batchNumber);
             if (isNaN(bn)) return res.status(400).json({ message: "Invalid batchNumber" });
@@ -242,55 +241,30 @@ export const uploadResumesToCloud = async (req, res) => {
             }
         }
 
-        /* ---------------- Generate BatchId Same Format ---------------- */
+        /* ---------------- Generate BatchId ---------------- */
         let batchId = `BATCH-${jobId}-${String(bn).padStart(4, "0")}`;
 
-        /* ---------------- Fetch or Create BatchResume Doc ---------------- */
+        /* ---------------- Fetch or Create BatchResume ---------------- */
         let batchResume = await BatchResume.findOne({ batchId });
 
         if (!batchResume) {
-            batchResume = new BatchResume({
-                jobId,
-                batchId,
-                resumes: [],
-            });
-        }
-
-        const newFileNames = files.map(f => f.originalname);
-
-        /* ---------------- Remove old resumes not in new upload ---------------- */
-        const toRemove = batchResume.resumes.filter(r => !newFileNames.includes(r.originalName));
-
-        await Promise.all(
-            toRemove.map(async (r) => {
+            batchResume = new BatchResume({ jobId, batchId, resumes: [] });
+        } else {
+            // ---------------- Full overwrite: remove all existing resumes ----------------
+            for (const r of batchResume.resumes) {
                 if (r.resumePublicId) {
                     await deleteFile(r.resumePublicId, r.resourceType || "raw");
                 }
-            })
-        );
-
-        batchResume.resumes = batchResume.resumes.filter(r => newFileNames.includes(r.originalName));
-
-        /* ---------------- Upload / Overwrite ---------------- */
-        for (const file of files) {
-            const existingIndex = batchResume.resumes.findIndex(
-                r => r.originalName === file.originalname
-            );
-
-            if (existingIndex >= 0) {
-                const oldResume = batchResume.resumes[existingIndex];
-                if (oldResume.resumePublicId) {
-                    await deleteFile(oldResume.resumePublicId, oldResume.resourceType || "raw");
-                }
             }
+            batchResume.resumes = [];
+        }
 
+        /* ---------------- Upload New Files ---------------- */
+        for (const file of files) {
             const uploaded = await uploadFile(file.buffer, file.originalname, "resumes");
 
             const resumeData = {
-                cvId: existingIndex >= 0
-                    ? batchResume.resumes[existingIndex].cvId
-                    : crypto.randomUUID(),
-
+                cvId: crypto.randomUUID(),
                 resumeUrl: uploaded.url,
                 resumePublicId: uploaded.publicId,
                 originalName: uploaded.originalName,
@@ -300,11 +274,7 @@ export const uploadResumesToCloud = async (req, res) => {
                 isAnalyzed: false,
             };
 
-            if (existingIndex >= 0) {
-                batchResume.resumes[existingIndex] = resumeData;
-            } else {
-                batchResume.resumes.push(resumeData);
-            }
+            batchResume.resumes.push(resumeData);
         }
 
         await batchResume.save();
