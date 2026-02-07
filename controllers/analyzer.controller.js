@@ -133,9 +133,7 @@ export const analyzeCvs = async (req, res) => {
     const { batchId, batchName, jobId } = req.body;
 
     if (!batchId || !batchName || !jobId) {
-      return res.status(400).json({
-        message: "batchId, batchName and jobId required",
-      });
+      return res.status(400).json({ message: "batchId, batchName and jobId required" });
     }
 
     const criteria = await getJobCriteriaById(jobId);
@@ -167,47 +165,45 @@ export const analyzeCvs = async (req, res) => {
       await batch.save();
     }
 
+    // ------------------ Delete existing applicants for this batch ------------------
+    await Applicant.deleteMany({
+      jobId,
+      "extractedData.batchId": batchId,
+      source: "Bulk",
+    });
+
     // ------------------ Prepare array to overwrite batch resumes ------------------
     const analyzedResumes = [];
 
     // ------------------ Process all resumes ------------------
     for (let i = 0; i < batchResume.resumes.length; i++) {
       const resumeMeta = batchResume.resumes[i];
-
       if (i > 0) await delay(MIN_REQUEST_DELAY);
 
       try {
         // Download CV
-        const fileRes = await axios.get(resumeMeta.resumeUrl, {
-          responseType: "arraybuffer",
-        });
+        const fileRes = await axios.get(resumeMeta.resumeUrl, { responseType: "arraybuffer" });
         const buffer = Buffer.from(fileRes.data);
 
         // Parse CV
         const structured = await structureCvData(buffer, resumeMeta.originalName);
 
-        // Experience calculation
-        const { professionalJob = 0, freelancing = 0, internship = 0 } =
-          structured.personalInfo || {};
+        // ------------------ Experience ------------------
+        const { professionalJob = 0, freelancing = 0, internship = 0 } = structured.personalInfo || {};
         const experience = {
           professional: clamp(round(Math.min(professionalJob / 24, 1) * 30, 2), 0, 30),
           freelancing: clamp(round(Math.min(freelancing / 12, 1) * 8, 2), 0, 8),
           internship: clamp(round(Math.min(internship / 6, 1) * 7, 2), 0, 7),
           gapPenaltyApplied: false,
         };
-        experience.total = round(
-          experience.professional + experience.freelancing + experience.internship,
-          2
-        );
+        experience.total = round(experience.professional + experience.freelancing + experience.internship, 2);
 
-        // AI Analysis
+        // ------------------ AI Analysis ------------------
         const analyzePrompt = `
 You are an ATS scoring engine.
-
 DO NOT calculate experience scores.
 DO NOT use years — months only.
 DO NOT invent numbers.
-
 Return ONLY JSON.
 
 Normalize all skills:
@@ -215,7 +211,6 @@ Normalize all skills:
   Examples: "c#", "C#", "c sharp" → "C#"
             "js", "JavaScript", "javascript" → "JavaScript"
             "reactjs", "React" → "React"
-
 Remove duplicate skills after normalization.
 
 Job Criteria:
@@ -226,11 +221,7 @@ ${JSON.stringify(structured)}
 
 Return:
 {
-  "skills": {
-    "technical": 0,
-    "tools": 0,
-    "soft": 0
-  },
+  "skills": { "technical": 0, "tools": 0, "soft": 0 },
   "roleFit": 0,
   "education": 0,
   "location": 0,
@@ -264,27 +255,13 @@ Return:
         const location = clamp(round(ai.location || 0, 2), 0, 5);
         const other = clamp(round(ai.other || 0, 2), 0, 5);
 
-        const distributed_scores = {
-          experience: experience.total,
-          skills: skills.total,
-          roleFit,
-          education,
-          location,
-          other,
-        };
-        distributed_scores.total = round(
-          Object.values(distributed_scores).filter((v) => typeof v === "number").reduce((a, b) => a + b, 0),
-          2
-        );
+        const distributed_scores = { experience: experience.total, skills: skills.total, roleFit, education, location, other };
+        distributed_scores.total = round(Object.values(distributed_scores).reduce((a, b) => a + b, 0), 2);
         const finalScore = Math.round(clamp(distributed_scores.total, 0, 100));
 
-        // Final payload
+        // ------------------ Final payload ------------------
         const payload = {
-          cv: {
-            id: resumeMeta.cvId,
-            filename: resumeMeta.originalName,
-            uploadDate: resumeMeta.uploadedAt,
-          },
+          cv: { id: resumeMeta.cvId, filename: resumeMeta.originalName, uploadDate: resumeMeta.uploadedAt },
           extractedData: structured,
           analysis: {
             score: finalScore,
@@ -302,11 +279,37 @@ Return:
           },
         };
 
-        // Stream to frontend
+        // ------------------ Stream to frontend ------------------
         res.write(JSON.stringify(payload) + "\n");
-
-        // Add to overwrite array
         analyzedResumes.push(payload);
+
+        console.log(`CV analyzed successfully: ${resumeMeta.originalName}`);
+
+
+        // ------------------ Applicant Creation ------------------
+        try {
+          const email = structured?.personalInfo?.email?.toLowerCase();
+          const fullName = structured?.personalInfo?.fullName?.trim();
+
+          await Applicant.create({
+            jobId,
+            source: "Bulk",
+            status: "Applied",
+            isApplied: true,
+            resumeUrl: resumeMeta.resumeUrl,
+            extractedData: { ...structured, batchId }, // store batchId
+            gpa: null,
+            userId: new mongoose.Types.ObjectId(),
+            resumeModel: "BulkResume",
+            score: finalScore,
+            appliedAt: new Date(),
+          });
+
+          console.log(`Applicant created successfully: ${fullName || email || resumeMeta.originalName}`);
+
+        } catch (error) {
+          console.error("Bulk applicant creation failed:", error.message);
+        }
 
       } catch (err) {
         const failedPayload = {
@@ -324,10 +327,12 @@ Return:
     }
 
     // ------------------ Overwrite batch resumes ------------------
-    batch.resumes = analyzedResumes.slice(0, 5); // max 5 resumes
+    batch.resumes = analyzedResumes.slice(0, 5); // keep max 5 resumes
     batch.isProcessing = false;
     batch.isCompleted = true;
     await batch.save();
+
+    console.log(`Batch analyzed successfully: ${batch.batchId}`);
 
     res.end();
   } catch (err) {
@@ -338,8 +343,6 @@ Return:
     }
   }
 };
-
-
 
 
 

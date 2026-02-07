@@ -90,12 +90,17 @@ applicantSchema.index(
 );
 
 // 2) Bulk email duplicate prevention (most important)
+// ----------------- BULK EMAIL / NAME UNIQUE INDEX -----------------
 applicantSchema.index(
-  { jobId: 1, "extractedData.personalInfo.email": 1, source: 1 },
+  {
+    jobId: 1,
+    "extractedData.personalInfo.email": 1,
+    "extractedData.personalInfo.fullName": 1,
+    source: 1,
+  },
   {
     unique: true,
     partialFilterExpression: {
-      "extractedData.personalInfo.email": { $exists: true },
       source: "Bulk",
     },
   }
