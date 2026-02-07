@@ -8,13 +8,13 @@ const ResumeSchema = new mongoose.Schema({
         uploadDate: String,
     },
 
-    // NEW fields
-    resumeUrl: { type: String, required: true },  // Cloudinary public URL
-    resumePublicId: { type: String, required: true }, // Cloudinary public_id
-    originalName: String,
-    size: Number,
-    uploadedAt: { type: Date, default: Date.now },
-    isAnalyzed: { type: Boolean, default: false },  // Whether AI has analyzed this resume
+    // // NEW fields
+    // resumeUrl: { type: String, required: true },  // Cloudinary public URL
+    // resumePublicId: { type: String, required: true }, // Cloudinary public_id
+    // originalName: String,
+    // size: Number,
+    // uploadedAt: { type: Date, default: Date.now },
+    // isAnalyzed: { type: Boolean, default: false },  // Whether AI has analyzed this resume
 
     extractedData: Object,
     analysis: {

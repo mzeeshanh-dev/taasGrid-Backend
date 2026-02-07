@@ -1,4 +1,5 @@
 import Batch from "../models/batch.js";
+import BatchResume from "../models/batchResume.js";
 import { uploadFile, deleteFile } from "../utils/cloudinaryService.js";
 import crypto from 'crypto'
 
@@ -225,61 +226,71 @@ export const uploadResumesToCloud = async (req, res) => {
         if (!jobId) return res.status(400).json({ message: "jobId required" });
         if (!files || files.length === 0) return res.status(400).json({ message: "No files uploaded" });
 
-        // Determine batchNumber
+        /* ---------------- Determine Batch Number ---------------- */
         let bn;
+
         if (batchNumber) {
             bn = Number(batchNumber);
             if (isNaN(bn)) return res.status(400).json({ message: "Invalid batchNumber" });
         } else {
-            const lastBatch = await Batch.findOne({ jobId }).sort({ batchNumber: -1 });
-            bn = lastBatch ? lastBatch.batchNumber + 1 : 1;
+            const lastBatch = await BatchResume.findOne({ jobId }).sort({ createdAt: -1 });
+            if (lastBatch) {
+                const lastNum = parseInt(lastBatch.batchId.split("-").pop());
+                bn = lastNum + 1;
+            } else {
+                bn = 1;
+            }
         }
 
-        // Fetch existing batch
-        let batch = await Batch.findOne({ jobId, batchNumber: bn, isDeleted: false });
-        if (!batch) {
-            // Generate unique batchId per job
-            const lastJobBatch = await Batch.find({ jobId }).sort({ batchNumber: -1 }).limit(1);
-            const lastIdNum = lastJobBatch.length ? parseInt(lastJobBatch[0].batchId.split("-")[1]) : 0;
-            const newBatchId = `BATCH-${jobId}-${(lastIdNum + 1).toString().padStart(4, "0")}`;
+        /* ---------------- Generate BatchId Same Format ---------------- */
+        let batchId = `BATCH-${jobId}-${String(bn).padStart(4, "0")}`;
 
-            batch = new Batch({
+        /* ---------------- Fetch or Create BatchResume Doc ---------------- */
+        let batchResume = await BatchResume.findOne({ batchId });
+
+        if (!batchResume) {
+            batchResume = new BatchResume({
                 jobId,
-                batchNumber: bn,
-                batchId: newBatchId,
-                name: `Batch-${String(bn).padStart(2, "0")}`,
+                batchId,
                 resumes: [],
             });
         }
 
         const newFileNames = files.map(f => f.originalname);
 
-        // 1️⃣ Remove old resumes not in new upload
-        const toRemove = batch.resumes.filter(r => !newFileNames.includes(r.originalName));
+        /* ---------------- Remove old resumes not in new upload ---------------- */
+        const toRemove = batchResume.resumes.filter(r => !newFileNames.includes(r.originalName));
+
         await Promise.all(
             toRemove.map(async (r) => {
-                if (r.resumePublicId) await deleteFile(r.resumePublicId, r.resourceType || "raw");
+                if (r.resumePublicId) {
+                    await deleteFile(r.resumePublicId, r.resourceType || "raw");
+                }
             })
         );
-        batch.resumes = batch.resumes.filter(r => newFileNames.includes(r.originalName));
 
-        // 2️⃣ Upload / overwrite
+        batchResume.resumes = batchResume.resumes.filter(r => newFileNames.includes(r.originalName));
+
+        /* ---------------- Upload / Overwrite ---------------- */
         for (const file of files) {
-            const existingIndex = batch.resumes.findIndex(r => r.originalName === file.originalname);
+            const existingIndex = batchResume.resumes.findIndex(
+                r => r.originalName === file.originalname
+            );
 
             if (existingIndex >= 0) {
-                const oldResume = batch.resumes[existingIndex];
-                if (oldResume.resumePublicId) await deleteFile(oldResume.resumePublicId, oldResume.resourceType || "raw");
+                const oldResume = batchResume.resumes[existingIndex];
+                if (oldResume.resumePublicId) {
+                    await deleteFile(oldResume.resumePublicId, oldResume.resourceType || "raw");
+                }
             }
 
             const uploaded = await uploadFile(file.buffer, file.originalname, "resumes");
 
             const resumeData = {
-                cv: {
-                    id: existingIndex >= 0 ? batch.resumes[existingIndex].cv.id : crypto.randomUUID(),
-                    filename: file.originalname,
-                    uploadDate: new Date(),
-                },
+                cvId: existingIndex >= 0
+                    ? batchResume.resumes[existingIndex].cvId
+                    : crypto.randomUUID(),
+
                 resumeUrl: uploaded.url,
                 resumePublicId: uploaded.publicId,
                 originalName: uploaded.originalName,
@@ -290,19 +301,18 @@ export const uploadResumesToCloud = async (req, res) => {
             };
 
             if (existingIndex >= 0) {
-                batch.resumes[existingIndex] = resumeData;
+                batchResume.resumes[existingIndex] = resumeData;
             } else {
-                batch.resumes.push(resumeData);
+                batchResume.resumes.push(resumeData);
             }
         }
 
-        await batch.save();
+        await batchResume.save();
 
-        res.json({
+        return res.json({
             success: true,
-            batchId: batch.batchId,
-            batchNumber: batch.batchNumber,
-            totalResumes: batch.resumes.length,
+            batchId: batchResume.batchId,
+            totalResumes: batchResume.resumes.length,
         });
 
     } catch (err) {
@@ -310,6 +320,7 @@ export const uploadResumesToCloud = async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 };
+
 
 
 
@@ -323,30 +334,28 @@ export const removeResumeFromBatch = async (req, res) => {
             return res.status(400).json({ message: "batchId & cvId required" });
         }
 
-        const batch = await Batch.findOne({ batchId, isDeleted: false });
-        if (!batch) {
+        const batchResume = await BatchResume.findOne({ batchId });
+
+        if (!batchResume) {
             return res.status(404).json({ message: "Batch not found" });
         }
 
-        const index = batch.resumes.findIndex(r => r.cv.id === cvId);
+        const index = batchResume.resumes.findIndex(r => r.cvId === cvId);
+
         if (index === -1) {
             return res.status(404).json({ message: "Resume not found" });
         }
 
-        const resume = batch.resumes[index];
+        const resume = batchResume.resumes[index];
 
-        // Delete from Cloudinary (your logic handles image/raw fallback)
         if (resume.resumePublicId) {
-            await deleteFile(
-                resume.resumePublicId,
-                resume.resourceType || "raw"
-            );
+            await deleteFile(resume.resumePublicId, resume.resourceType || "raw");
         }
 
-        batch.resumes.splice(index, 1);
-        await batch.save();
+        batchResume.resumes.splice(index, 1);
+        await batchResume.save();
 
-        res.json({
+        return res.json({
             success: true,
             message: "Resume deleted from DB & Cloudinary",
         });
@@ -356,6 +365,7 @@ export const removeResumeFromBatch = async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 };
+
 
 
 // --------------------- Update Batch Status ---------------------

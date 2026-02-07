@@ -15,7 +15,6 @@ import authRoutes from "./routes/auth.routes.js";
 import analyzerRoute from "./routes/analyzer.route.js"
 import batchRoutes from "./routes/batch.routes.js"
 import projectRoute from "./routes/project.routes.js"
-import uploadCvRoute from "./routes/uploadCv.routes.js"
 
 dotenv.config();
 
@@ -75,7 +74,7 @@ app.use("/api/fyps", fypRoutes);
 app.use("/api/bundle", analyzerRoute);
 app.use("/api/batch", batchRoutes);
 app.use("/api/project", projectRoute);
-app.use("/api/cv", uploadCvRoute);
+
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
