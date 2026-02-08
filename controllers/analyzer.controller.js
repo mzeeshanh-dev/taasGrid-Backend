@@ -14,10 +14,9 @@ import BatchResume from "../models/batchResume.js";
 
 dotenv.config();
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const MIN_REQUEST_DELAY = 500;
 
-// const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const apiKey = process.env.GROQ_API_KEY;
 
 if (!apiKey) {
