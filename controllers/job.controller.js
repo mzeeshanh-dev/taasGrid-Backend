@@ -310,3 +310,52 @@ export const getJobById = async (req, res) => {
 
 
 
+export const updateJob = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      title,
+      description,
+      experience,
+      qualification,
+      location,
+      salary,
+      jobType,
+      requirements,
+      workType,
+      status,
+      scheduleDate,
+      closingDate,
+    } = req.body;
+
+    const job = await Job.findById(id);
+    if (!job) return res.status(404).json({ success: false, message: "Job not found" });
+
+    // Don't allow editing if closingDate is past
+    const today = new Date();
+    if (new Date(job.closingDate) < today) {
+      return res.status(400).json({ success: false, message: "Cannot edit expired job" });
+    }
+
+    // Update fields
+    job.title = title || job.title;
+    job.description = description || job.description;
+    job.experience = experience || job.experience;
+    job.qualification = qualification || job.qualification;
+    job.location = location || job.location;
+    job.salary = salary || job.salary;
+    job.jobType = jobType || job.jobType;
+    job.workType = workType || job.workType;
+    job.requirements = Array.isArray(requirements) ? requirements : job.requirements;
+    job.status = status || job.status;
+    job.scheduleDate = scheduleDate || job.scheduleDate;
+    job.closingDate = closingDate || job.closingDate;
+
+    await job.save();
+
+    res.status(200).json({ success: true, job });
+  } catch (error) {
+    console.error("updateJob:", error);
+    res.status(500).json({ success: false, message: "Error updating job", error: error.message });
+  }
+};
