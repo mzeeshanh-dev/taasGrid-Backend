@@ -28,7 +28,8 @@ const app = express();
 // }));
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://taa-s-grid.vercel.app"
+  "https://taa-s-grid.vercel.app",
+  "http://taasgrid.com/"
 ];
 
 app.use(cors({
@@ -75,7 +76,7 @@ app.use("/api/fyps", fypRoutes);
 app.use("/api/bundle", analyzerRoute);
 app.use("/api/batch", batchRoutes);
 app.use("/api/project", projectRoute);
-app.use("/api/cvForge", CvForgeRoutes);
+app.use("/api/parser", CvForgeRoutes);
 
 
 const PORT = process.env.PORT || 3001;
