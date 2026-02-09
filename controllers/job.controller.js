@@ -18,10 +18,8 @@ export const createJob = async (req, res) => {
       closingDate,
     } = req.body;
 
-    const company = req.company;
-    if (!company) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
-    }
+    const company = req.company || { _id: req.body.postedBy || null };
+
 
     // Required fields
     if (
@@ -92,7 +90,7 @@ export const createJob = async (req, res) => {
       status: status || "Active",
       scheduleDate: status === "Scheduled" ? scheduleDate : null,
       closingDate,
-      postedBy: company._id,
+      postedBy: company._id || null,
     });
 
     await job.save();

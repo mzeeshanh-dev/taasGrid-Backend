@@ -11,9 +11,9 @@ import {
 import { requireCompanyAuth } from "../middleware/authCompany.middleware.js";
 const router = express.Router();
 
-router.post("/", requireCompanyAuth, createJob);
+router.post("/", createJob);
 router.get("/", getJobs);
-router.delete("/:id", requireCompanyAuth, deleteJob);
+router.delete("/:id", deleteJob);
 router.put("/jobs/:id", updateJobStatus);
 router.get("/internships", getInternships);
 router.get("/criteria/:jobId", getJobCriteria);
