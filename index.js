@@ -29,7 +29,7 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:3000",
   "https://taa-s-grid.vercel.app",
-  "http://taasgrid.com/"
+  "http://taasgrid.com"
 ];
 
 app.use(cors({

@@ -4,22 +4,22 @@ import Company from "../models/company.js";
 
 // -------------------- Cookie Options -------------------- //
 const getCookieOptions = (maxAge) => {
-  const isProduction = process.env.NODE_ENV === "production";
+  // const isProduction = process.env.NODE_ENV === "production";
   return {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? "none" : "lax",
+    secure: false,
+    sameSite: "lax",
     path: "/",
     maxAge,
   };
 };
 
 const clearCookieOptions = () => {
-  const isProduction = process.env.NODE_ENV === "production";
+  // const isProduction = process.env.NODE_ENV === "production";
   return {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? "none" : "lax",
+    secure: false,
+    sameSite: "lax",
     path: "/",
   };
 };
@@ -39,7 +39,7 @@ const generateTokens = (id, role) => {
   );
 
   return { accessToken, refreshToken };
-};      
+};
 
 // -------------------- Login -------------------- //
 export const login = async (req, res) => {
@@ -74,19 +74,19 @@ export const login = async (req, res) => {
     const payload =
       role === "company"
         ? {
-            _id: user._id,
-            companyName: user.companyName,
-            email: user.email,
-            role,
-            plan: user.plan,
-          }
+          _id: user._id,
+          companyName: user.companyName,
+          email: user.email,
+          role,
+          plan: user.plan,
+        }
         : {
-            _id: user._id,
-            name: user.fullName,
-            email: user.email,
-            role,
-            plan: user.plan,
-          };
+          _id: user._id,
+          name: user.fullName,
+          email: user.email,
+          role,
+          plan: user.plan,
+        };
 
     res.status(200).json({ user: payload });
   } catch (err) {

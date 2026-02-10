@@ -27,9 +27,9 @@
     "multer": "^2.0.2",
     "nodemon": "^3.1.10",
     "p-limit": "^7.3.0",
+    "pdf-image": "^2.0.0",
     "pdf-parse": "^2.4.5",
     "pdf-parse-fixed": "^1.1.1",
-    "pdf-poppler": "^0.2.3",
     "streamifier": "^0.1.1",
     "tesseract.js": "^7.0.0"
   }

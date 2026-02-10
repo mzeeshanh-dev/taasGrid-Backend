@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import pdf from "pdf-parse-fixed"; // stable PDF parser
-import { convert } from "pdf-poppler"; // optional OCR fallback
+import { PDFImage } from "pdf-image"; // replacement for pdf-poppler
 import Tesseract from "tesseract.js"; // optional OCR fallback
 import mammoth from "mammoth"; // DOCX extraction
 import dotenv from "dotenv";
@@ -32,12 +32,19 @@ async function extractTextFromPDF(buffer) {
         try {
             const tempPdfPath = path.join(__dirname, "temp.pdf");
             fs.writeFileSync(tempPdfPath, buffer);
-            const images = await convert(tempPdfPath, { format: "png", out_dir: __dirname });
-            for (let imgPath of images) {
+
+            // Convert PDF pages to images using pdf-image
+            const pdfImage = new PDFImage(tempPdfPath, {
+                convertOptions: { "-density": "150", "-quality": "90" }
+            });
+            const numberOfPages = await pdfImage.numberOfPages();
+            for (let i = 0; i < numberOfPages; i++) {
+                const imgPath = await pdfImage.convertPage(i);
                 const { data: { text: ocrText } } = await Tesseract.recognize(imgPath, "eng");
                 text += ocrText + "\n";
                 fs.unlinkSync(imgPath);
             }
+
             fs.unlinkSync(tempPdfPath);
         } catch (ocrErr) {
             console.log("⚠️ OCR failed:", ocrErr.message);
