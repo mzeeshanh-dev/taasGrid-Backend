@@ -359,3 +359,46 @@ export const updateJob = async (req, res) => {
     res.status(500).json({ success: false, message: "Error updating job", error: error.message });
   }
 };
+
+
+export const getJobsByCompany = async (req, res) => {
+  try {
+    const { companyId } = req.params;
+
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        message: "companyId is required",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(companyId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid companyId",
+      });
+    }
+
+    const jobs = await Job.find({
+      postedBy: companyId,
+      isDeleted: false,
+    })
+      .populate({
+        path: "postedBy",
+        select: "companyName email logo address companyId",
+      })
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: jobs.length,
+      jobs,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error fetching company jobs",
+      error: error.message,
+    });
+  }
+};
