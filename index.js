@@ -16,6 +16,7 @@ import analyzerRoute from "./routes/analyzer.route.js"
 import batchRoutes from "./routes/batch.routes.js"
 import projectRoute from "./routes/project.routes.js"
 import CvForgeRoutes from "./routes/CvForge.routes.js"
+import AdminRoutes from "./routes/admin.routes.js"
 
 dotenv.config();
 
@@ -30,7 +31,7 @@ const allowedOrigins = [
   "http://localhost:3000",
   "https://taa-s-grid.vercel.app",
   "http://taasgrid.com",
-  "https://taas-grid-frontend.vercel.app/"
+  "https://taas-grid-frontend.vercel.app/",
 ];
 
 app.use(cors({
@@ -78,6 +79,8 @@ app.use("/api/bundle", analyzerRoute);
 app.use("/api/batch", batchRoutes);
 app.use("/api/project", projectRoute);
 app.use("/api/parser", CvForgeRoutes);
+app.use("/api/admin", AdminRoutes);
+
 
 
 const PORT = process.env.PORT || 3001;

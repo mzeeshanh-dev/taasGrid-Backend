@@ -68,6 +68,7 @@ export const login = async (req, res) => {
     user.refreshToken = refreshToken;
     await user.save({ validateBeforeSave: false });
 
+    // Keep cookies for legacy clients
     res.cookie("accessToken", accessToken, getCookieOptions(15 * 60 * 1000));
     res.cookie("refreshToken", refreshToken, getCookieOptions(7 * 24 * 60 * 60 * 1000));
 
@@ -88,7 +89,7 @@ export const login = async (req, res) => {
           plan: user.plan,
         };
 
-    res.status(200).json({ user: payload });
+    res.status(200).json({ user: payload, accessToken, refreshToken });
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ message: "Internal server error" });
@@ -220,9 +221,19 @@ export const logout = async (req, res) => {
 // -------------------- Refresh Token -------------------- //
 export const refreshToken = async (req, res) => {
   try {
-    const refresh = req.cookies.refreshToken;
+    const bearer = req.headers.authorization || req.headers.Authorization;
+    const headerToken =
+      typeof bearer === "string" && bearer.startsWith("Bearer ")
+        ? bearer.slice(7)
+        : null;
+
+    const refresh =
+      req.body?.refreshToken ||
+      headerToken ||
+      req.cookies?.refreshToken;
+
     if (!refresh)
-      return res.status(401).json({ message: "No refresh token" });
+      return res.status(401).json({ message: "No refresh token provided" });
 
     const payload = jwt.verify(refresh, process.env.REFRESH_TOKEN_SECRET);
 
@@ -238,8 +249,13 @@ export const refreshToken = async (req, res) => {
       { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN }
     );
 
+    // Issue new tokens (no rotation here; reuse existing refresh token)
     res.cookie("accessToken", accessToken, getCookieOptions(15 * 60 * 1000));
-    res.status(200).json({ message: "Access token refreshed" });
+    res.status(200).json({
+      accessToken,
+      refreshToken: refresh,
+      message: "Access token refreshed",
+    });
 
   } catch (err) {
     console.error("Refresh token error:", err);

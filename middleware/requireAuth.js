@@ -4,11 +4,11 @@ import Company from "../models/company.js";
 
 export const requireAuth = async (req, res, next) => {
   try {
-    let token = req.cookies?.accessToken;
-    if (!token) {
-      const authHeader = req.headers.authorization;
-      if (authHeader?.startsWith("Bearer ")) token = authHeader.split(" ")[1];
-    }
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    const token =
+      typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : req.body?.accessToken || null;
 
     if (!token) return res.status(401).json({ message: "No token provided" });
 
