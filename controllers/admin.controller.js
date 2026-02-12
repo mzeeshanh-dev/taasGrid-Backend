@@ -195,38 +195,6 @@ export const updateUserStatus = async (req, res) => {
     }
 };
 
-export const deleteUser = async (req, res) => {
-    try {
-        const { userId } = req.params;
-
-        const user = await User.findById(userId);
-        if (!user || user.isDeleted) {
-            return res.status(404).json({
-                success: false,
-                message: "User not found"
-            });
-        }
-
-        const deletedBy = req.user?._id || null;
-
-        user.isDeleted = true;
-        user.deletedAt = new Date();
-        user.deletedBy = deletedBy;
-
-        await user.save();
-
-        res.status(200).json({
-            success: true,
-            message: "User deleted successfully"
-        });
-
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-};
 
 // ----------------- COMPANY MANAGEMENT -----------------
 export const getAllCompanies = async (req, res) => {
@@ -260,38 +228,6 @@ export const getJobApplicants = async (req, res) => {
     }
 };
 
-export const deleteCompany = async (req, res) => {
-    try {
-        const { companyId } = req.params;
-
-        const company = await Company.findById(companyId);
-        if (!company || company.isDeleted) {
-            return res.status(404).json({
-                success: false,
-                message: "Company not found"
-            });
-        }
-
-        const deletedBy = req.user?._id || null;
-
-        company.isDeleted = true;
-        company.deletedAt = new Date();
-        company.deletedBy = deletedBy;
-
-        await company.save();
-
-        res.status(200).json({
-            success: true,
-            message: "Company deleted successfully"
-        });
-
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-};
 
 
 // ----------------- EDIT USER -----------------
@@ -483,5 +419,60 @@ export const updateCompanyStatus = async (req, res) => {
 
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// ----------------- GET ALL APPLICANTS -----------------
+export const getAllApplicants = async (req, res) => {
+    try {
+        const applicants = await Applicant.find({ isDeleted: false })
+            .populate("userId", "name email")
+            .populate("jobId", "title postedBy")
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({
+            success: true,
+            count: applicants.length,
+            data: applicants
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// ----------------- GET APPLICANTS BY COMPANY -----------------
+export const getApplicantsByCompany = async (req, res) => {
+    try {
+        const { companyId } = req.params;
+
+        // Step 1: Get all jobs posted by this company
+        const jobs = await Job.find({ postedBy: companyId, isDeleted: false }).select("_id");
+
+        const jobIds = jobs.map(job => job._id);
+
+        // Step 2: Get applicants for those jobs
+        const applicants = await Applicant.find({
+            jobId: { $in: jobIds },
+            isDeleted: false
+        })
+            .populate("userId", "name email")
+            .populate("jobId", "title")
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({
+            success: true,
+            count: applicants.length,
+            data: applicants
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
