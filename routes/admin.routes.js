@@ -3,7 +3,7 @@ import {
     getDashboardStats,
     getAllUsers,
     createUser,
-    suspendUser,
+    updateUserStatus,
     deleteUser,
     getAllCompanies,
     getCompanyJobs,
@@ -19,7 +19,7 @@ router.get("/dashboard", getDashboardStats);
 // ----------------- USERS -----------------
 router.get("/users/all", getAllUsers);
 router.post("/user/create", createUser);
-router.put("/user/suspend/:userId", suspendUser);
+router.patch("/users/:userId/status", updateUserStatus);
 router.delete("/user/delete/:userId", deleteUser);
 
 // ----------------- COMPANIES -----------------

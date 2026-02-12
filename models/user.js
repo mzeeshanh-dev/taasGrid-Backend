@@ -9,6 +9,11 @@ const userSchema = mongoose.Schema(
         name: { type: String, required: true, trim: true, index: true },
         password: { type: String, required: [true, "Password is required"] },
         role: { type: String, required: true },
+        status: {
+            type: String,
+            default: "Active"
+        },
+
         isDeleted: { type: Boolean, default: false },
         deletedAt: { type: Date },
         deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

@@ -65,18 +65,42 @@ export const createUser = async (req, res) => {
     }
 };
 
-export const suspendUser = async (req, res) => {
+export const updateUserStatus = async (req, res) => {
     try {
         const { userId } = req.params;
-        const user = await User.findById(userId);
-        if (!user || user.isDeleted) return res.status(404).json({ success: false, message: "User not found" });
+        const { status } = req.body;
 
-        user.role = "Suspended";
+        const allowedStatuses = ["Active", "Suspended", "Blocked"];
+
+        if (!allowedStatuses.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid status value"
+            });
+        }
+
+        const user = await User.findById(userId);
+
+        if (!user || user.isDeleted) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        user.status = status;
         await user.save();
 
-        res.status(200).json({ success: true, message: "User suspended successfully" });
+        res.status(200).json({
+            success: true,
+            message: `User status updated to ${status}`
+        });
+
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 
