@@ -9,6 +9,7 @@ import {
     getCompanyJobs,
     getJobApplicants,
     deleteCompany,
+    editUser
 } from "../controllers/admin.controller.js";
 
 const router = express.Router();
@@ -21,6 +22,7 @@ router.get("/users/all", getAllUsers);
 router.post("/user/create", createUser);
 router.patch("/users/:userId/status", updateUserStatus);
 router.delete("/user/delete/:userId", deleteUser);
+router.patch("/users/edit/:userId", editUser);
 
 // ----------------- COMPANIES -----------------
 router.get("/companies/all", getAllCompanies);

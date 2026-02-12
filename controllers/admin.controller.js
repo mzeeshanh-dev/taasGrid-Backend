@@ -9,30 +9,121 @@ import BatchResume from "../models/batchResume.js"; // IMPORTANT
 
 // ----------------- DASHBOARD STATS -----------------
 
+
 export const getDashboardStats = async (req, res) => {
     try {
+        // ---------------- TOTAL COUNTS ----------------
+        const [
+            totalUsers,
+            totalApplicants,
+            totalCompanies,
+            totalJobs,
+        ] = await Promise.all([
+            User.countDocuments({ isDeleted: false }),
+            Applicant.countDocuments({ isDeleted: false }),
+            Company.countDocuments({ isDeleted: false }),
+            Job.countDocuments({ isDeleted: false }),
+        ]);
 
-        // Total Applicants (also Total CVs)
-        const totalApplicants = await Applicant.countDocuments({ isDeleted: false });
+        // ---------------- USERS BY ROLE ----------------
+        const usersByRole = await User.aggregate([
+            { $match: { isDeleted: false } },
+            {
+                $group: {
+                    _id: "$role",
+                    count: { $sum: 1 },
+                },
+            },
+            {
+                $project: {
+                    _id: 0,
+                    role: "$_id",
+                    count: 1,
+                },
+            },
+        ]);
 
-        const totalCompanies = await Company.countDocuments({ isDeleted: false });
-        const totalJobs = await Job.countDocuments({ isDeleted: false });
+        // ---------------- USERS BY STATUS ----------------
+        const usersByStatus = await User.aggregate([
+            { $match: { isDeleted: false } },
+            {
+                $group: {
+                    _id: "$status",
+                    count: { $sum: 1 },
+                },
+            },
+            {
+                $project: {
+                    _id: 0,
+                    status: "$_id",
+                    count: 1,
+                },
+            },
+        ]);
+
+        // ---------------- APPLICANTS BY SOURCE ----------------
+        const applicantsBySource = await Applicant.aggregate([
+            { $match: { isDeleted: false } },
+            {
+                $group: {
+                    _id: "$source",
+                    count: { $sum: 1 },
+                },
+            },
+            {
+                $project: {
+                    _id: 0,
+                    source: "$_id",
+                    count: 1,
+                },
+            },
+        ]);
+
+        // ---------------- JOBS BY STATUS ----------------
+        const jobsByStatus = await Job.aggregate([
+            { $match: { isDeleted: false } },
+            {
+                $group: {
+                    _id: "$status",
+                    count: { $sum: 1 },
+                },
+            },
+            {
+                $project: {
+                    _id: 0,
+                    status: "$_id",
+                    count: 1,
+                },
+            },
+        ]);
 
         res.status(200).json({
             success: true,
+            message: "Dashboard statistics fetched successfully",
             data: {
-                totalCVs: totalApplicants,   // same value
-                totalApplicants,
-                totalCompanies,
-                totalJobs
+                totals: {
+                    totalUsers,
+                    totalApplicants,
+                    totalCompanies,
+                    totalJobs,
+                },
+                users: {
+                    byRole: usersByRole,
+                    byStatus: usersByStatus,
+                },
+                applicants: {
+                    bySource: applicantsBySource,
+                },
+                jobs: {
+                    byStatus: jobsByStatus,
+                },
             },
-            message: "Dashboard stats fetched successfully",
         });
 
     } catch (error) {
         res.status(500).json({
             success: false,
-            message: error.message
+            message: error.message,
         });
     }
 };
@@ -198,6 +289,76 @@ export const deleteCompany = async (req, res) => {
         res.status(500).json({
             success: false,
             message: error.message
+        });
+    }
+};
+
+
+// ----------------- EDIT USER -----------------
+export const editUser = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { name, email, password, role } = req.body;
+
+        // Validate required fields
+        if (!name || !email || !role) {
+            return res.status(400).json({
+                success: false,
+                message: "Name, email, and role are required",
+            });
+        }
+
+        // Validate role (optional: only allow specific roles)
+        const allowedRoles = ["student", "employee"];
+        if (!allowedRoles.includes(role.toLowerCase())) {
+            return res.status(400).json({
+                success: false,
+                message: `Role must be one of: ${allowedRoles.join(", ")}`,
+            });
+        }
+
+        // Find user
+        const user = await User.findById(userId);
+        if (!user || user.isDeleted) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found",
+            });
+        }
+
+        // Check if email is being changed to an existing email
+        if (email !== user.email) {
+            const existingUser = await User.findOne({ email });
+            if (existingUser) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Email already in use",
+                });
+            }
+        }
+
+        // Update fields
+        user.name = name;
+        user.email = email;
+        user.role = role;
+
+        // Update password only if provided
+        if (password) {
+            user.password = password; // pre-save hook will hash it
+        }
+
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: "User updated successfully",
+            data: user,
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message,
         });
     }
 };
