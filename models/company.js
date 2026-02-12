@@ -19,6 +19,7 @@ const companySchema = new mongoose.Schema(
     establishedYear: { type: Number, min: 1800, max: new Date().getFullYear() },
     logo: { type: String },
     isDeleted: { type: Boolean, default: false },
+    status: { type: String, enum: ["Active", "Suspended", "Blocked"], default: "Active" },
     deletedAt: { type: Date },
     deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
   },

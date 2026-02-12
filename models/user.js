@@ -9,6 +9,7 @@ const userSchema = mongoose.Schema(
         name: { type: String, required: true, trim: true, index: true },
         password: { type: String, required: [true, "Password is required"] },
         role: { type: String, required: true },
+        level: { type: String, enum: ["basic", "premium"], default: "basic" },
         status: {
             type: String,
             default: "Active"

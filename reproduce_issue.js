@@ -6,7 +6,7 @@ async function run() {
   // 1. Register a new company
   const email = `testcompany_${Date.now()}@example.com`;
   const password = 'password123';
-  
+
   console.log(`Registering company: ${email}`);
   const registerRes = await fetch(`${BASE_URL}/auth/register/company`, {
     method: 'POST',
@@ -48,7 +48,7 @@ async function run() {
   });
 
   const updateData = await updateRes.json();
-  
+
   if (updateRes.ok) {
     console.log('TEST PASSED');
   } else {

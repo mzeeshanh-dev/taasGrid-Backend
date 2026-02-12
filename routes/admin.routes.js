@@ -9,7 +9,10 @@ import {
     getCompanyJobs,
     getJobApplicants,
     deleteCompany,
-    editUser
+    editUser,
+    editCompany,
+    createCompany,
+    updateCompanyStatus
 } from "../controllers/admin.controller.js";
 
 const router = express.Router();
@@ -28,6 +31,11 @@ router.patch("/users/edit/:userId", editUser);
 router.get("/companies/all", getAllCompanies);
 router.get("/companies/:companyId/jobs", getCompanyJobs);
 router.get("/jobs/:jobId/applicants", getJobApplicants);
-router.delete("/companies/:companyId", deleteCompany);
+router.delete("/company/delete/:companyId", deleteCompany);
+
+router.patch("/company/edit/:companyId", editCompany);
+router.post("/company/create", createCompany);
+
+router.patch("/company/:companyId/status", updateCompanyStatus);
 
 export default router;
