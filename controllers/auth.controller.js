@@ -145,36 +145,36 @@ export const registerCompany = async (req, res) => {
     if (!companyName || !email || !password)
       return res.status(400).json({ message: "Required fields missing" });
 
-    // Check if company exists
+    // Check if recruiter already exists
     if (await Company.findOne({ email }))
-      return res.status(409).json({ message: "Company already exists" });
+      return res.status(409).json({ message: "Recruiter already exists" });
 
-    // Create company (NO TOKEN GENERATION)
+    // Create recruiter (role automatically set)
     const company = await Company.create({
       companyName,
       email,
       password,
       plan,
+      role: "Recruiter",   // 👈 added
       ...rest,
     });
 
-    // Respond with newly created company details (NO COOKIES)
     res.status(201).json({
-      message: "Company registered successfully. Please login.",
-      company: {
+      message: "Recruiter registered successfully. Please login.",
+      recruiter: {
         _id: company._id,
-        companyName,
-        email,
+        companyName: company.companyName,
+        email: company.email,
         plan: company.plan,
+        role: company.role
       },
     });
 
   } catch (err) {
-    console.error("Register company error:", err);
+    console.error("Register recruiter error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
-
 
 // -------------------- Get Current User -------------------- //
 export const getMe = async (req, res) => {

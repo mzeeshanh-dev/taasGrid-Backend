@@ -423,17 +423,36 @@ export const updateCompanyStatus = async (req, res) => {
 };
 
 // ----------------- GET ALL APPLICANTS -----------------
+/**
+ * FIXED VERSION: Now properly populates company data through job
+ * This allows industry filtering to work correctly
+ */
 export const getAllApplicants = async (req, res) => {
     try {
         const applicants = await Applicant.find({ isDeleted: false })
             .populate("userId", "name email")
-            .populate("jobId", "title postedBy")
+            .populate({
+                path: "jobId",
+                select: "title postedBy",
+                populate: {
+                    path: "postedBy",
+                    model: "Company",
+                    select: "companyName industry"
+                }
+            })
             .sort({ createdAt: -1 });
+
+        // Add industry field to each applicant for easier filtering on frontend
+        const applicantsWithIndustry = applicants.map(applicant => {
+            const applicantObj = applicant.toObject();
+            applicantObj.industry = applicantObj.jobId?.postedBy?.industry || null;
+            return applicantObj;
+        });
 
         res.status(200).json({
             success: true,
-            count: applicants.length,
-            data: applicants
+            count: applicantsWithIndustry.length,
+            data: applicantsWithIndustry
         });
 
     } catch (error) {
@@ -445,6 +464,9 @@ export const getAllApplicants = async (req, res) => {
 };
 
 // ----------------- GET APPLICANTS BY COMPANY -----------------
+/**
+ * FIXED VERSION: Now properly populates company data
+ */
 export const getApplicantsByCompany = async (req, res) => {
     try {
         const { companyId } = req.params;
@@ -454,19 +476,68 @@ export const getApplicantsByCompany = async (req, res) => {
 
         const jobIds = jobs.map(job => job._id);
 
-        // Step 2: Get applicants for those jobs
+        // Step 2: Get applicants for those jobs with populated company data
         const applicants = await Applicant.find({
             jobId: { $in: jobIds },
             isDeleted: false
         })
             .populate("userId", "name email")
-            .populate("jobId", "title")
+            .populate({
+                path: "jobId",
+                select: "title postedBy",
+                populate: {
+                    path: "postedBy",
+                    model: "Company",
+                    select: "companyName industry"
+                }
+            })
             .sort({ createdAt: -1 });
+
+        // Add industry field to each applicant for easier filtering on frontend
+        const applicantsWithIndustry = applicants.map(applicant => {
+            const applicantObj = applicant.toObject();
+            applicantObj.industry = applicantObj.jobId?.postedBy?.industry || null;
+            return applicantObj;
+        });
 
         res.status(200).json({
             success: true,
-            count: applicants.length,
-            data: applicants
+            count: applicantsWithIndustry.length,
+            data: applicantsWithIndustry
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// ----------------- GET ALL INDUSTRIES -----------------
+/**
+ * Get all unique industries from companies
+ * This endpoint returns a list of all industries that exist in the database
+ * Used for populating the industry filter dropdown
+ */
+export const getAllIndustries = async (req, res) => {
+    try {
+        // Get all unique industries from companies, excluding null/empty values
+        const industries = await Company.distinct("industry", {
+            isDeleted: false,
+            industry: { $exists: true, $ne: null, $ne: "" }
+        });
+
+        // Sort industries alphabetically
+        const sortedIndustries = industries.sort((a, b) =>
+            a.toLowerCase().localeCompare(b.toLowerCase())
+        );
+
+        res.status(200).json({
+            success: true,
+            count: sortedIndustries.length,
+            data: sortedIndustries,
+            message: "Industries fetched successfully"
         });
 
     } catch (error) {

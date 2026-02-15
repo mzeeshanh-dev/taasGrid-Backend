@@ -12,7 +12,8 @@ import {
     createCompany,
     updateCompanyStatus,
     getAllApplicants,
-    getApplicantsByCompany
+    getApplicantsByCompany,
+    getAllIndustries
 } from "../controllers/admin.controller.js";
 
 const router = express.Router();
@@ -35,7 +36,12 @@ router.patch("/company/edit/:companyId", editCompany);
 router.post("/company/create", createCompany);
 
 router.patch("/company/:companyId/status", updateCompanyStatus);
+
+// ----------------- APPLICANTS -----------------
 router.get("/applicants/all", getAllApplicants);
 router.get("/company/:companyId/applicants", getApplicantsByCompany);
+
+// ----------------- INDUSTRIES -----------------
+router.get("/industries", getAllIndustries);
 
 export default router;
